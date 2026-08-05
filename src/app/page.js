@@ -11,6 +11,32 @@ import {
 
 let socket;
 
+const EMOJIS = ['😀','😂','🤣','😊','😍','😘','😎','🤔','😅','😭','😡','🥺','😴','🤯','👍','👎','👏','🙏','💪','🔥','❤️','💔','✨','🎉','🎂','👀','💯','✅','❌','⚠️','🚀','🐱','🐶','🍕','⚽','🎮','🌹','☕','😂','😉','🤝','😇','🥳','😬','🙄','😜','🤗','😷'];
+
+function formatDuration(secs) {
+  if (!secs || secs <= 0) return '';
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `(${m}:${String(s).padStart(2, '0')})`;
+}
+
+function Avatar({ url, name, size = 36, fontSize, border = '1px solid var(--line)', bg = 'var(--bg-3)', color }) {
+  if (url) {
+    return (
+      <img
+        src={url}
+        alt={name}
+        style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', border, flexShrink: 0 }}
+      />
+    );
+  }
+  return (
+    <div style={{ width: size, height: size, borderRadius: '50%', background: bg, border, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: fontSize || Math.round(size * 0.4), fontWeight: 'bold', color: color || 'var(--gold)', flexShrink: 0 }}>
+      {name ? name[0].toUpperCase() : '?'}
+    </div>
+  );
+}
+
 const rtcConfig = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -171,6 +197,25 @@ export default function Home() {
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [showAddToCallModal, setShowAddToCallModal] = useState(false);
 
+  // --- Edição de mensagem ---
+  const [editingMsgId, setEditingMsgId] = useState(null);
+  const [editText, setEditText] = useState('');
+
+  // --- Emoji picker ---
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
+  // --- Cronômetro de chamada ---
+  const callStartedAtRef = useRef(null);
+  const [callElapsed, setCallElapsed] = useState(0);
+
+  // --- Bloqueios ---
+  const [blockedIds, setBlockedIds] = useState({});
+
+  // --- Edição de perfil próprio ---
+  const [editProfileMode, setEditProfileMode] = useState(false);
+  const [editBio, setEditBio] = useState('');
+  const [editStatus, setEditStatus] = useState('');
+
   // --- Referências de Elementos e WebRTC ---
   const localVideoRef = useRef(null);
   const remoteVideoElsRef = useRef({}); // peerId -> <video>
@@ -300,6 +345,58 @@ export default function Home() {
     }
   }, []);
 
+  // --- Som sutil de mensagem (WebAudio, sem arquivo) ---
+  const playBeep = useCallback(() => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.3);
+      setTimeout(() => ctx.close(), 600);
+    } catch (e) { /* áudio indisponível */ }
+  }, []);
+
+  // --- Badge de não lidas no título da aba ---
+  useEffect(() => {
+    const total =
+      Object.values(localUnread).reduce((a, b) => a + b, 0) +
+      friendsList.reduce((a, f) => a + (f.unreadCount || 0), 0) +
+      groupsList.reduce((a, g) => a + (g.unreadCount || 0), 0);
+    document.title = total > 0 ? `(${total}) NexChat` : 'NexChat';
+  }, [localUnread, friendsList, groupsList]);
+
+  // --- Cronômetro da chamada ativa ---
+  useEffect(() => {
+    if (callState !== 'connected') return;
+    callStartedAtRef.current = Date.now();
+    const iv = setInterval(() => {
+      setCallElapsed(Math.floor((Date.now() - callStartedAtRef.current) / 1000));
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [callState]);
+
+  // --- Carregar lista de bloqueados ---
+  const loadBlocks = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await authedFetch('/api/blocks');
+      const data = await res.json();
+      if (data.success) {
+        setBlockedIds(Object.fromEntries(data.blocked.map(b => [b.id, true])));
+      }
+    } catch (err) {
+      console.error('Erro ao buscar bloqueios:', err);
+    }
+  }, [user]);
+
   // --- Carregar lista de grupos ---
   const loadGroups = useCallback(async () => {
     if (!user) return;
@@ -315,14 +412,14 @@ export default function Home() {
   }, [user]);
 
   // --- Registrar chamada no chat (registro fica salvo) ---
-  const logCall = useCallback(async (callType) => {
+  const logCall = useCallback(async (callType, duration = 0) => {
     const friend = selectedFriendRef.current;
     if (!friend || !user) return;
     try {
       const res = await authedFetch('/api/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'call_log', receiverId: friend.friendId, callType })
+        body: JSON.stringify({ action: 'call_log', receiverId: friend.friendId, callType, durationSeconds: duration })
       });
       const data = await res.json();
       if (data.success && data.message) {
@@ -523,6 +620,7 @@ export default function Home() {
     setRemoteStreams({});
     setCallState('idle');
     setActiveCallRoom(null);
+    setCallElapsed(0);
   }, [removeCallListeners]);
 
   // --- Efeito: Inicializar Socket se Usuário Logar ---
@@ -677,8 +775,14 @@ export default function Home() {
         }
       } else {
         addToast('Nova mensagem de amizade!', 'info');
+        playBeep();
         setLocalUnread(prev => ({ ...prev, [msg.senderId]: (prev[msg.senderId] || 0) + 1 }));
       }
+    });
+
+    socket.on('friend_msg_edited', (msg) => {
+      if (!msg || !msg.id) return;
+      setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, ...msg } : m));
     });
 
     socket.on('friend_call_logged', (msg) => {
@@ -691,6 +795,7 @@ export default function Home() {
         setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
       } else {
         addToast('Nova mensagem em grupo!', 'info');
+        playBeep();
         setGroupsList(prev => prev.map(g => g.id === msg.groupId ? { ...g, unreadCount: (g.unreadCount || 0) + 1 } : g));
         loadGroups();
       }
@@ -755,21 +860,23 @@ export default function Home() {
       addToast('Chamada encerrada pelo amigo.', 'warning');
       const t = callTypeRef.current;
       cleanupCall();
-      logCall(t);
+      logCall(t, 0);
     });
 
     const queueLoad = setTimeout(loadFriends, 0);
     const queueLoadGroups = setTimeout(loadGroups, 0);
+    const queueLoadBlocks = setTimeout(loadBlocks, 0);
 
     return () => {
       clearTimeout(queueLoad);
       clearTimeout(queueLoadGroups);
+      clearTimeout(queueLoadBlocks);
       removeCallListeners();
       if (socket) {
         socket.disconnect();
       }
     };
-  }, [user, loadFriends, addToast, getOrCreatePC, cleanupCall, removeCallListeners, markMessagesRead, logCall, loadGroups]);
+  }, [user, loadFriends, addToast, getOrCreatePC, cleanupCall, removeCallListeners, markMessagesRead, logCall, loadGroups, loadBlocks, playBeep]);
 
   // --- Ações de Login ---
   const handleAuth = async (e) => {
@@ -844,6 +951,8 @@ export default function Home() {
     setPendingSent([]);
     setGroupsList([]);
     setSelectedGroup(null);
+    setBlockedIds({});
+    setEditProfileMode(false);
     cleanupCall();
     if (socket) {
       socket.disconnect();
@@ -970,6 +1079,134 @@ export default function Home() {
         socket.emit('delete_friend_msg', { roomId: chatRoomId, messageId: msgId, friendId: selectedFriend.friendId });
       } else {
         addToast(data.error || 'Não foi possível apagar a mensagem', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // --- Editar mensagem (apenas remetente, marca "editada") ---
+  const startEditMessage = (msg) => {
+    setEditingMsgId(msg.id);
+    setEditText(msg.content);
+  };
+
+  const cancelEditMessage = () => {
+    setEditingMsgId(null);
+    setEditText('');
+  };
+
+  const saveEditMessage = async () => {
+    if (!editingMsgId || !editText.trim() || !user) return;
+    try {
+      const res = await authedFetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'edit', messageId: editingMsgId, content: editText.trim() })
+      });
+      const data = await res.json();
+      if (data.success && data.message) {
+        setMessages(prev => prev.map(m => m.id === data.message.id ? data.message : m));
+        if (selectedFriend) {
+          const sortedIds = [user.id, selectedFriend.friendId].sort();
+          const chatRoomId = `friend_chat_${sortedIds[0]}_${sortedIds[1]}`;
+          socket.emit('edit_friend_msg', { roomId: chatRoomId, message: data.message, friendId: selectedFriend.friendId });
+        }
+        cancelEditMessage();
+      } else {
+        addToast(data.error || 'Não foi possível editar a mensagem', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // --- Bloquear / desbloquear usuário ---
+  const toggleBlock = async (target) => {
+    if (!user || !target) return;
+    const isBlocked = !!blockedIds[target.id];
+    try {
+      const res = await authedFetch('/api/blocks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: isBlocked ? 'unblock' : 'block', targetId: target.id })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBlockedIds(prev => {
+          const n = { ...prev };
+          if (data.blocked) n[target.id] = true; else delete n[target.id];
+          return n;
+        });
+        addToast(isBlocked ? `${target.username} desbloqueado.` : `${target.username} bloqueado.`, isBlocked ? 'success' : 'warning');
+        if (!isBlocked && selectedFriend?.friendId === target.id) {
+          setSelectedFriend(null);
+          setMessages([]);
+        }
+      } else {
+        addToast(data.error || 'Erro ao bloquear usuário', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // --- Editar perfil (bio/status) ---
+  const openEditProfile = () => {
+    setEditBio(user.bio || '');
+    setEditStatus(user.status || '');
+    setEditProfileMode(true);
+  };
+
+  const saveProfile = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await authedFetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bio: editBio, status: editStatus })
+      });
+      const data = await res.json();
+      if (data.success) {
+        const updated = { ...user, bio: data.user.bio, status: data.user.status };
+        setUser(updated);
+        localStorage.setItem('nexchat_user', JSON.stringify(updated));
+        if (profileUser && profileUser.id === user.id) setProfileUser({ ...profileUser, bio: data.user.bio, status: data.user.status });
+        setEditProfileMode(false);
+        addToast('Perfil atualizado!', 'success');
+      } else {
+        addToast(data.error || 'Erro ao salvar perfil', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const uploadAvatar = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('purpose', 'avatar');
+    try {
+      const res = await authedFetch('/api/upload', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.success) {
+        const res2 = await authedFetch('/api/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ avatarUrl: data.file.url })
+        });
+        const d2 = await res2.json();
+        if (d2.success) {
+          const updated = { ...user, avatarUrl: data.file.url };
+          setUser(updated);
+          localStorage.setItem('nexchat_user', JSON.stringify(updated));
+          if (profileUser && profileUser.id === user.id) setProfileUser({ ...profileUser, avatarUrl: data.file.url });
+          addToast('Avatar atualizado!', 'success');
+        }
+      } else {
+        addToast(data.error || 'Erro ao enviar avatar', 'error');
       }
     } catch (err) {
       console.error(err);
@@ -1209,12 +1446,13 @@ export default function Home() {
   const endCall = () => {
     const roomId = activeCallRoom;
     const t = callType;
+    const duration = callStartedAtRef.current ? Math.max(0, Math.floor((Date.now() - callStartedAtRef.current) / 1000)) : 0;
     if (roomId) {
       socket.emit('end_friend_call', { callRoomId: roomId });
     }
     cleanupCall();
     addToast('Chamada encerrada.', 'info');
-    logCall(t);
+    logCall(t, duration);
   };
 
   // --- Grupos ---
@@ -1558,9 +1796,13 @@ export default function Home() {
       >
         {/* Perfil e Logout */}
         <div style={{ padding: '16px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <h3 style={{ fontSize: '15px', color: 'var(--text)' }}>{user.username}</h3>
-            <span style={{ fontSize: '11px', color: 'var(--gold)', fontFamily: 'var(--font-mono)' }}>{user.customId}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, cursor: 'pointer' }} onClick={() => openProfile({ friendId: user.id })}>
+            <Avatar url={user.avatarUrl} name={user.username} size={38} border="1px solid var(--gold)" />
+            <div style={{ minWidth: 0 }}>
+              <h3 style={{ fontSize: '15px', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.username}</h3>
+              <span style={{ fontSize: '11px', color: 'var(--gold)', fontFamily: 'var(--font-mono)' }}>{user.customId}</span>
+              {user.status && <div style={{ fontSize: '10px', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.status}</div>}
+            </div>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             {(user.role === 'admin' || user.role === 'moderator') && (
@@ -1666,9 +1908,7 @@ export default function Home() {
                 }}
               >
                 <div style={{ position: 'relative', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); openProfile(f); }}>
-                  <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--bg-3)', border: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: 'bold' }}>
-                    {f.username[0].toUpperCase()}
-                  </div>
+                  <Avatar url={f.avatarUrl} name={f.username} size={36} />
                   <div style={{ position: 'absolute', bottom: 0, right: 0, width: '10px', height: '10px', borderRadius: '50%', background: onlineUsers[f.friendId] ? 'var(--green)' : 'var(--bg-3)', border: '2px solid var(--bg-2)' }}></div>
                 </div>
                 <div style={{ minWidth: 0, flex: 1 }}>
@@ -1847,8 +2087,14 @@ export default function Home() {
                   </button>
                 )}
                 
-                <div style={{ width: isMobile ? '30px' : '36px', height: isMobile ? '30px' : '36px', borderRadius: '50%', background: 'var(--gold-soft)', border: '1px solid var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: 'var(--gold)', flexShrink: 0, cursor: selectedGroup ? 'default' : inRandomChat ? 'default' : 'pointer' }} onClick={() => { if (!inRandomChat && !selectedGroup) openProfile(selectedFriend); }}>
-                  {selectedGroup ? <Users size={isMobile ? 14 : 16} /> : inRandomChat ? '?' : selectedFriend.username[0].toUpperCase()}
+                <div style={{ width: isMobile ? '30px' : '36px', height: isMobile ? '30px' : '36px', flexShrink: 0, cursor: selectedGroup ? 'default' : inRandomChat ? 'default' : 'pointer' }} onClick={() => { if (!inRandomChat && !selectedGroup) openProfile(selectedFriend); }}>
+                  {selectedGroup ? (
+                    <Avatar name="Grupo" size={isMobile ? 30 : 36} border="1px solid var(--gold)" bg="var(--gold-soft)" color="var(--gold)" />
+                  ) : inRandomChat ? (
+                    <Avatar name="?" size={isMobile ? 30 : 36} border="1px solid var(--gold)" bg="var(--gold-soft)" color="var(--gold)" />
+                  ) : (
+                    <Avatar url={selectedFriend.avatarUrl} name={selectedFriend.username} size={isMobile ? 30 : 36} border="1px solid var(--gold)" bg="var(--gold-soft)" color="var(--gold)" />
+                  )}
                 </div>
                 <div style={{ minWidth: 0 }}>
                   <h4 style={{ fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1928,7 +2174,7 @@ export default function Home() {
                   />
                 ))}
                 <span style={{ fontSize: '13px', color: 'var(--gold)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Phone size={14} /> Em chamada de áudio...
+                  <Phone size={14} /> Em chamada de áudio... <span style={{ fontFamily: 'var(--font-mono)', color: '#fff' }}>{formatDuration(callElapsed)}</span>
                 </span>
                 {selectedFriend && (
                   <button onClick={() => setShowAddToCallModal(true)} title="Adicionar à chamada" style={{ padding: '8px', borderRadius: '50%', background: 'var(--gold-soft)', color: 'var(--gold)', border: '1px solid var(--gold)', minHeight: isMobile ? '32px' : '36px' }}>
@@ -2005,6 +2251,11 @@ export default function Home() {
                 
                 {/* Controles flutuantes */}
                 <div style={{ position: 'absolute', bottom: '10px', left: '10px', display: 'flex', gap: '6px', zIndex: 10 }}>
+                  {callState === 'connected' && (
+                    <span style={{ padding: '6px 10px', background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: '12px', fontFamily: 'var(--font-mono)', borderRadius: '4px', border: '1px solid var(--line)' }}>
+                      {formatDuration(callElapsed)}
+                    </span>
+                  )}
                   <button onClick={toggleAudio} style={{ padding: '8px', borderRadius: '50%', background: 'rgba(0,0,0,0.7)', color: '#fff', border: '1px solid var(--line)' }}>
                     {audioEnabled ? <Mic size={12} /> : <MicOff size={12} />}
                   </button>
@@ -2042,6 +2293,9 @@ export default function Home() {
                           <Phone size={12} style={{ color: 'var(--gold)' }} />
                         )}
                         <span>{msg.content}</span>
+                        {msg.durationSeconds > 0 && (
+                          <span style={{ fontFamily: 'var(--font-mono)', color: '#fff' }}>{formatDuration(msg.durationSeconds)}</span>
+                        )}
                       </div>
                       <span style={{ fontSize: '9px', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                         {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -2087,36 +2341,55 @@ export default function Home() {
                       </div>
                     )}
 
-                    <div style={{ 
-                      background: isMe ? 'var(--gold-soft)' : 'var(--bg-3)', 
-                      border: isMe ? '1px solid var(--gold)' : '1px solid var(--line)', 
-                      color: isMe ? '#fff' : 'var(--text)', 
-                      padding: '8px 12px', 
-                      borderRadius: isMe ? '14px 14px 2px 14px' : '14px 14px 14px 2px',
-                      position: 'relative'
-                    }}>
-                      <p style={{ fontSize: '13px', lineHeight: '1.4', wordBreak: 'break-word' }}>{msg.content}</p>
-                      
-                      {msg.likedBy.length > 0 && (
-                        <div style={{ 
-                          position: 'absolute', 
-                          bottom: '-10px', 
-                          right: '8px', 
-                          background: 'var(--bg-2)', 
-                          border: '1px solid var(--line)', 
-                          borderRadius: '10px', 
-                          padding: '2px 5px', 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          gap: '2px',
-                          fontSize: '8px',
-                          color: 'var(--gold)'
-                        }}>
-                          <Heart size={8} fill="var(--gold)" />
-                          <span>{msg.likedBy.length}</span>
-                        </div>
-                      )}
-                    </div>
+                    {editingMsgId === msg.id ? (
+                      <div style={{ background: isMe ? 'var(--gold-soft)' : 'var(--bg-3)', border: '1px solid var(--gold)', borderRadius: '14px', padding: '8px', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        <input
+                          type="text"
+                          value={editText}
+                          onChange={e => setEditText(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') saveEditMessage(); if (e.key === 'Escape') cancelEditMessage(); }}
+                          autoFocus
+                          style={{ flex: 1, background: 'transparent', border: 'none', color: '#fff', fontSize: '13px', outline: 'none' }}
+                        />
+                        <button onClick={saveEditMessage} style={{ color: 'var(--gold)', border: 'none', background: 'none', fontSize: '11px' }}>Salvar</button>
+                        <button onClick={cancelEditMessage} style={{ color: 'var(--muted)', border: 'none', background: 'none', fontSize: '11px' }}>Cancelar</button>
+                      </div>
+                    ) : (
+                      <div style={{ 
+                        background: isMe ? 'var(--gold-soft)' : 'var(--bg-3)', 
+                        border: isMe ? '1px solid var(--gold)' : '1px solid var(--line)', 
+                        color: isMe ? '#fff' : 'var(--text)', 
+                        padding: '8px 12px', 
+                        borderRadius: isMe ? '14px 14px 2px 14px' : '14px 14px 14px 2px',
+                        position: 'relative'
+                      }}>
+                        <p style={{ fontSize: '13px', lineHeight: '1.4', wordBreak: 'break-word' }}>{msg.content}
+                          {msg.editedAt && (
+                            <span style={{ fontSize: '9px', color: 'var(--muted)', fontStyle: 'italic', marginLeft: '6px' }}>editada</span>
+                          )}
+                        </p>
+                        
+                        {msg.likedBy.length > 0 && (
+                          <div style={{ 
+                            position: 'absolute', 
+                            bottom: '-10px', 
+                            right: '8px', 
+                            background: 'var(--bg-2)', 
+                            border: '1px solid var(--line)', 
+                            borderRadius: '10px', 
+                            padding: '2px 5px', 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '2px',
+                            fontSize: '8px',
+                            color: 'var(--gold)'
+                          }}>
+                            <Heart size={8} fill="var(--gold)" />
+                            <span>{msg.likedBy.length}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     <div style={{ 
                       display: 'flex', 
@@ -2136,6 +2409,9 @@ export default function Home() {
                       <button onClick={() => handleLikeMessage(msg.id)} style={{ color: liked ? 'var(--gold)' : 'var(--muted)', border: 'none', background: 'none' }}>
                         {liked ? 'Descurtir' : 'Curtir'}
                       </button>
+                      {isMe && selectedFriend && !inRandomChat && msg.type !== 'call' && (
+                        <button onClick={() => startEditMessage(msg)} style={{ color: 'var(--gold)', border: 'none', background: 'none' }}>Editar</button>
+                      )}
                       {isMe && selectedFriend && !inRandomChat && (
                         <button onClick={() => handleDeleteMessage(msg.id)} style={{ color: 'var(--red)', border: 'none', background: 'none' }}>Apagar</button>
                       )}
@@ -2158,7 +2434,31 @@ export default function Home() {
                 </div>
               )}
 
+              {showEmojiPicker && (
+                <div style={{ position: 'relative', zIndex: 20 }}>
+                  <div style={{ position: 'absolute', bottom: '6px', left: '0', background: 'var(--bg-3)', border: '1px solid var(--gold)', borderRadius: '10px', padding: '8px', display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: '2px', maxHeight: '160px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+                    {EMOJIS.map((em, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => {
+                          setMessageText(prev => prev + em);
+                          if (!selectedGroup) handleTypingChange();
+                        }}
+                        style={{ fontSize: '16px', padding: '4px', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '4px' }}
+                        className="friend-item-hover"
+                      >
+                        {em}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: '6px' }}>
+                <button type="button" onClick={() => setShowEmojiPicker(v => !v)} title="Emojis" style={{ color: showEmojiPicker ? 'var(--gold)' : 'var(--muted)', padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px' }}>
+                  <Smile size={16} />
+                </button>
                 <input 
                   type="text" 
                   placeholder="Escreva..." 
@@ -2326,23 +2626,70 @@ export default function Home() {
               <p style={{ color: 'var(--red)', fontSize: '13px', padding: '24px 0' }}>{profileError}</p>
             ) : profileUser && (
               <>
-                <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: 'var(--gold-soft)', border: '1px solid var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', fontWeight: 'bold', color: 'var(--gold)', margin: '0 auto 12px' }}>
-                  {profileUser.username[0].toUpperCase()}
+                <div style={{ position: 'relative', width: '72px', height: '72px', margin: '0 auto 12px' }}>
+                  <Avatar url={profileUser.avatarUrl} name={profileUser.username} size={72} border="1px solid var(--gold)" bg="var(--gold-soft)" color="var(--gold)" />
                 </div>
                 <h3 style={{ fontSize: '18px', color: 'var(--text)' }}>{profileUser.username}</h3>
-                <p style={{ fontSize: '12px', color: 'var(--gold)', fontFamily: 'var(--font-mono)', marginBottom: '12px' }}>{profileUser.customId}</p>
+                <p style={{ fontSize: '12px', color: 'var(--gold)', fontFamily: 'var(--font-mono)', marginBottom: '8px' }}>{profileUser.customId}</p>
+                {profileUser.status && (
+                  <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>Status: <span style={{ color: 'var(--gold)' }}>{profileUser.status}</span></div>
+                )}
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px', color: 'var(--muted)', marginBottom: '16px' }}>
-                  <span><MapPin size={12} style={{ verticalAlign: '-2px', marginRight: '4px' }} /> {profileUser.country || 'Desconhecido'}</span>
-                  <span>Gênero: {profileUser.gender === 'male' ? 'Masculino' : profileUser.gender === 'female' ? 'Feminino' : 'Outro'}</span>
-                  <span style={{ color: onlineUsers[profileUser.id] ? 'var(--green)' : 'var(--muted)' }}>
-                    {onlineUsers[profileUser.id] ? 'Online' : 'Offline'}
-                  </span>
-                </div>
+                {editProfileMode ? (
+                  <form onSubmit={saveProfile} style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px', textAlign: 'left' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Avatar</label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Avatar url={user.avatarUrl} name={user.username} size={40} />
+                        <label className="btn-secondary" style={{ fontSize: '11px', padding: '6px 10px', cursor: 'pointer' }}>
+                          Enviar foto
+                          <input type="file" accept="image/*" style={{ display: 'none' }} onChange={uploadAvatar} />
+                        </label>
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Status (ex: no trabalho)</label>
+                      <input type="text" maxLength="40" value={editStatus} onChange={e => setEditStatus(e.target.value)} style={{ width: '100%', fontSize: '13px', padding: '8px 10px' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Bio</label>
+                      <textarea rows="3" maxLength="160" value={editBio} onChange={e => setEditBio(e.target.value)} placeholder="Conte algo sobre você..." style={{ width: '100%', resize: 'none', background: 'var(--bg-3)', border: '1px solid var(--line)', color: '#fff', padding: '8px', borderRadius: '6px', fontSize: '12px' }} />
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button type="submit" className="btn-primary" style={{ flex: 1, justifyContent: 'center', minHeight: '38px', fontSize: '13px' }}>Salvar</button>
+                      <button type="button" onClick={() => setEditProfileMode(false)} className="btn-secondary" style={{ flex: 1, justifyContent: 'center', minHeight: '38px', fontSize: '13px' }}>Cancelar</button>
+                    </div>
+                  </form>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px', color: 'var(--muted)', marginBottom: '16px' }}>
+                      <span><MapPin size={12} style={{ verticalAlign: '-2px', marginRight: '4px' }} /> {profileUser.country || 'Desconhecido'}</span>
+                      <span>Gênero: {profileUser.gender === 'male' ? 'Masculino' : profileUser.gender === 'female' ? 'Feminino' : 'Outro'}</span>
+                      <span style={{ color: onlineUsers[profileUser.id] ? 'var(--green)' : 'var(--muted)' }}>
+                        {onlineUsers[profileUser.id] ? 'Online' : profileUser.lastSeen ? `Visto por último às ${new Date(profileUser.lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Offline'}
+                      </span>
+                      {profileUser.bio && <span style={{ fontStyle: 'italic', color: 'var(--text)' }}>&ldquo;{profileUser.bio}&rdquo;</span>}
+                    </div>
 
-                <button className="btn-primary" onClick={startChatFromProfile} style={{ width: '100%', justifyContent: 'center', minHeight: '40px' }}>
-                  <MessageSquare size={14} /> Conversar
-                </button>
+                    {profileUser.id === user.id ? (
+                      <button className="btn-secondary" onClick={openEditProfile} style={{ width: '100%', justifyContent: 'center', minHeight: '40px' }}>
+                        <Settings size={14} /> Editar perfil
+                      </button>
+                    ) : (
+                      <>
+                        <button className="btn-primary" onClick={startChatFromProfile} style={{ width: '100%', justifyContent: 'center', minHeight: '40px', marginBottom: '8px' }}>
+                          <MessageSquare size={14} /> Conversar
+                        </button>
+                        <button
+                          onClick={() => toggleBlock(profileUser)}
+                          style={{ width: '100%', justifyContent: 'center', minHeight: '36px', fontSize: '12px', background: blockedIds[profileUser.id] ? 'var(--green-soft, rgba(34,197,94,0.1))' : 'var(--red)', color: blockedIds[profileUser.id] ? 'var(--green)' : '#fff', border: blockedIds[profileUser.id] ? '1px solid var(--green)' : 'none', borderRadius: '6px' }}
+                        >
+                          {blockedIds[profileUser.id] ? 'Desbloquear' : 'Bloquear'}
+                        </button>
+                      </>
+                    )}
+                  </>
+                )}
               </>
             )}
           </div>

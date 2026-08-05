@@ -21,6 +21,7 @@ export async function GET(req) {
     // Busca as mensagens e as informações de quem enviou e respondeu
     const messages = await sql(
       `SELECT m.id, m."senderId", m."receiverId", m.content, m.type, m."parentMessageId", m."createdAt", m."readAt",
+              m."editedAt", m."durationSeconds", m."attachmentId",
               pm.content as "parentContent",
               COALESCE(
                 (SELECT json_agg(ml."userId") 
@@ -32,6 +33,11 @@ export async function GET(req) {
        LEFT JOIN "DirectMessage" pm ON pm.id = m."parentMessageId"
        WHERE (m."senderId" = $1 AND m."receiverId" = $2)
           OR (m."senderId" = $2 AND m."receiverId" = $1)
+         AND NOT EXISTS (
+           SELECT 1 FROM "Block" b
+           WHERE (b."blockerId" = m."senderId" AND b."blockedId" = m."receiverId")
+              OR (b."blockerId" = m."receiverId" AND b."blockedId" = m."senderId")
+         )
        ORDER BY m."createdAt" ASC`,
       [userId, friendId]
     );
@@ -58,7 +64,16 @@ export async function POST(req) {
     // 1. SALVAR NOVA MENSAGEM (SEND)
     if (action === 'send') {
       if (!receiverId || !content) {
-        return NextResponse.json({ error: 'Parâmetros insuficientes para enviar mensagem' }, { status: 400 });
+        return NextResponse.json({ error: 'receiverId e content são obrigatórios' }, { status: 400 });
+      }
+      // Bloqueado (qualquer direção) não pode enviar mensagens
+      const blocked = await sql(
+        `SELECT 1 FROM "Block"
+         WHERE ("blockerId" = $1 AND "blockedId" = $2) OR ("blockerId" = $2 AND "blockedId" = $1) LIMIT 1`,
+        [userId, receiverId]
+      );
+      if (blocked.length > 0) {
+        return NextResponse.json({ error: 'Não é possível enviar mensagem para este usuário' }, { status: 403 });
       }
 
       // Sanitizar conteúdo da mensagem contra XSS
@@ -143,21 +158,30 @@ export async function POST(req) {
 
     // 4. REGISTRAR CHAMADA NO CHAT (CALL LOG)
     if (action === 'call_log') {
-      const { receiverId, callType } = body;
+      const { receiverId, callType, durationSeconds } = body;
       if (!receiverId || !callType) {
         return NextResponse.json({ error: 'receiverId e callType são obrigatórios' }, { status: 400 });
       }
+      const blocked = await sql(
+        `SELECT 1 FROM "Block"
+         WHERE ("blockerId" = $1 AND "blockedId" = $2) OR ("blockerId" = $2 AND "blockedId" = $1) LIMIT 1`,
+        [userId, receiverId]
+      );
+      if (blocked.length > 0) {
+        return NextResponse.json({ error: 'Não é possível registrar chamada para este usuário' }, { status: 403 });
+      }
       const content = callType === 'video' ? 'Chamada de vídeo' : 'Chamada de áudio';
+      const duration = Number.isFinite(durationSeconds) && durationSeconds > 0 ? Math.floor(durationSeconds) : null;
       const result = await sql(
-        `INSERT INTO "DirectMessage" ("senderId", "receiverId", content, type)
-         SELECT $1, $2, $3, 'call'
+        `INSERT INTO "DirectMessage" ("senderId", "receiverId", content, type, "durationSeconds")
+         SELECT $1, $2, $3, 'call', $4
          WHERE NOT EXISTS (
            SELECT 1 FROM "DirectMessage" c
            WHERE c."senderId" = $1 AND c."receiverId" = $2 AND c.type = 'call'
              AND c."createdAt" > now() - interval '60 seconds'
          )
          RETURNING *`,
-        [userId, receiverId, content]
+        [userId, receiverId, content, duration]
       );
       if (result.length === 0) {
         const existing = await sql(
@@ -167,6 +191,28 @@ export async function POST(req) {
           [userId, receiverId]
         );
         return NextResponse.json({ success: true, message: existing[0], duplicate: true });
+      }
+      return NextResponse.json({ success: true, message: result[0] });
+    }
+
+    // 5. EDITAR MENSAGEM (apenas remetente)
+    if (action === 'edit') {
+      const { messageId: editId, content: editContent } = body;
+      if (!editId || !editContent) {
+        return NextResponse.json({ error: 'messageId e content são obrigatórios' }, { status: 400 });
+      }
+      const cleanEdit = DOMPurify.sanitize(editContent.trim());
+      if (!cleanEdit) {
+        return NextResponse.json({ error: 'Mensagem vazia após sanitização' }, { status: 400 });
+      }
+      const result = await sql(
+        `UPDATE "DirectMessage" SET content = $1, "editedAt" = now(), "updatedAt" = now()
+         WHERE id = $2 AND "senderId" = $3
+         RETURNING *`,
+        [cleanEdit, editId, userId]
+      );
+      if (result.length === 0) {
+        return NextResponse.json({ error: 'Mensagem não encontrada ou sem permissão' }, { status: 404 });
       }
       return NextResponse.json({ success: true, message: result[0] });
     }

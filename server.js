@@ -101,6 +101,16 @@ function getCookie(req, name) {
   return null;
 }
 
+// Verifica se há bloqueio em qualquer direção entre dois usuários
+function isBlocked(userIdA, userIdB) {
+  const pool = getDbPool();
+  if (!pool || !userIdA || !userIdB) return Promise.resolve(false);
+  return pool.query(
+    `SELECT 1 FROM "Block" WHERE ("blockerId" = $1 AND "blockedId" = $2) OR ("blockerId" = $2 AND "blockedId" = $1) LIMIT 1`,
+    [userIdA, userIdB]
+  ).then(r => r.rows.length > 0).catch(() => false);
+}
+
 app.prepare().then(() => {
   const httpServer = createServer((req, res) => {
     const parsedUrl = parse(req.url, true);
@@ -378,18 +388,21 @@ app.prepare().then(() => {
       // data: { roomId, message: { id, senderId, receiverId, content, parentMessageId, parentMessageContent } }
       const { roomId, message } = data;
       if (!roomId || !message) return;
-      socket.to(roomId).emit('receive_friend_msg', message);
-      // Se o destinatário não estiver na sala (ex: na sidebar), entrega direta
-      // para que a mensagem chegue em tempo real, sem recarregar a página
-      const receiverId = message.receiverId;
-      if (receiverId) {
-        const members = io.sockets.adapter.rooms.get(roomId);
-        for (const [id, sock] of io.sockets.sockets) {
-          if (socketUsers[id] === receiverId && (!members || !members.has(id))) {
-            sock.emit('receive_friend_msg', message);
+      isBlocked(message.senderId, message.receiverId).then((blocked) => {
+        if (blocked) return; // não repassa mensagem de/para bloqueado
+        socket.to(roomId).emit('receive_friend_msg', message);
+        // Se o destinatário não estiver na sala (ex: na sidebar), entrega direta
+        // para que a mensagem chegue em tempo real, sem recarregar a página
+        const receiverId = message.receiverId;
+        if (receiverId) {
+          const members = io.sockets.adapter.rooms.get(roomId);
+          for (const [id, sock] of io.sockets.sockets) {
+            if (socketUsers[id] === receiverId && (!members || !members.has(id))) {
+              sock.emit('receive_friend_msg', message);
+            }
           }
         }
-      }
+      });
     });
 
     socket.on('delete_friend_msg', (data) => {
@@ -402,6 +415,21 @@ app.prepare().then(() => {
         for (const [id, sock] of io.sockets.sockets) {
           if (socketUsers[id] === friendId && (!members || !members.has(id))) {
             sock.emit('friend_msg_deleted', { messageId });
+          }
+        }
+      }
+    });
+
+    socket.on('edit_friend_msg', (data) => {
+      // data: { roomId, message, friendId (destinatário, para entrega direta) }
+      const { roomId, message, friendId } = data;
+      if (!roomId || !message || !message.id) return;
+      socket.to(roomId).emit('friend_msg_edited', message);
+      if (friendId) {
+        const members = io.sockets.adapter.rooms.get(roomId);
+        for (const [id, sock] of io.sockets.sockets) {
+          if (socketUsers[id] === friendId && (!members || !members.has(id))) {
+            sock.emit('friend_msg_edited', message);
           }
         }
       }
@@ -441,21 +469,30 @@ app.prepare().then(() => {
       const { friendUserId, callerData, type, callRoomId } = data;
       if (!callRoomId || !friendUserId) return;
 
-      // Caller entra na sala da chamada para receber aceite/rejeição e sinalização
-      socket.join(callRoomId);
-      activeCalls[callRoomId] = {
-        hostSocketId: socket.id,
-        type,
-        participants: [socketUsers[socket.id], friendUserId]
-      };
-
-      // Envia a chamada apenas para o socket do amigo
-      for (const [id, sock] of io.sockets.sockets) {
-        if (socketUsers[id] === friendUserId) {
-          sock.emit(`incoming_call_to_${friendUserId}`, { callerData, callerId: callerData.id, type, callRoomId, isGroup: false });
-          break;
+      const callerId = socketUsers[socket.id];
+      // Bloqueado (qualquer direção): não chama nem é chamado
+      isBlocked(callerId, friendUserId).then((blocked) => {
+        if (blocked) {
+          socket.emit(`call_rejected_for_${callRoomId}`);
+          return;
         }
-      }
+
+        // Caller entra na sala da chamada para receber aceite/rejeição e sinalização
+        socket.join(callRoomId);
+        activeCalls[callRoomId] = {
+          hostSocketId: socket.id,
+          type,
+          participants: [callerId, friendUserId]
+        };
+
+        // Envia a chamada apenas para o socket do amigo
+        for (const [id, sock] of io.sockets.sockets) {
+          if (socketUsers[id] === friendUserId) {
+            sock.emit(`incoming_call_to_${friendUserId}`, { callerData, callerId: callerData.id, type, callRoomId, isGroup: false });
+            break;
+          }
+        }
+      });
     });
 
     // Adicionar pessoa a uma chamada em andamento
@@ -467,13 +504,16 @@ app.prepare().then(() => {
       const myUserId = socketUsers[socket.id];
       if (!call.participants.includes(myUserId)) return;
       if (call.participants.includes(friendUserId)) return;
-      call.participants.push(friendUserId);
-      for (const [id, sock] of io.sockets.sockets) {
-        if (socketUsers[id] === friendUserId) {
-          sock.emit(`incoming_call_to_${friendUserId}`, { callerData, callerId: myUserId, type, callRoomId, isGroup: true });
-          break;
+      isBlocked(myUserId, friendUserId).then((blocked) => {
+        if (blocked) return;
+        call.participants.push(friendUserId);
+        for (const [id, sock] of io.sockets.sockets) {
+          if (socketUsers[id] === friendUserId) {
+            sock.emit(`incoming_call_to_${friendUserId}`, { callerData, callerId: myUserId, type, callRoomId, isGroup: true });
+            break;
+          }
         }
-      }
+      });
     });
 
     socket.on('accept_friend_call', (data) => {
@@ -546,6 +586,9 @@ app.prepare().then(() => {
           delete userSockets[disconnectedUserId];
           io.emit('user_offline', { userId: disconnectedUserId });
           setUserOnline(disconnectedUserId, false);
+          // "Visto por último" — guarda o momento do último disconnect
+          getDbPool()?.query('UPDATE "User" SET "lastSeen" = now() WHERE id = $1', [disconnectedUserId])
+            .catch(() => {});
         }
       }
 
@@ -580,4 +623,31 @@ app.prepare().then(() => {
   httpServer.listen(port, () => {
     console.log(`> Ready on http://${hostname}:${port}`);
   });
+
+  // Limpeza periódica: arquivos view-once/24h expirados
+  const UPLOADS_DIR = path.join(__dirname, 'uploads');
+  async function cleanupExpiredFiles() {
+    const pool = getDbPool();
+    if (!pool) return;
+    try {
+      const res = await pool.query(
+        `SELECT id, "storagePath" FROM "File"
+         WHERE ("expiresAt" IS NOT NULL AND "expiresAt" < now())
+            OR ("viewOnce" = true AND "viewedAt" IS NOT NULL AND "viewedAt" < now() - interval '1 hour')`
+      );
+      for (const row of res.rows) {
+        try {
+          const fp = path.join(UPLOADS_DIR, path.basename(row.storagePath.replace(/\\/g, '/').split('/').pop()));
+          const full = path.join(UPLOADS_DIR, ...row.storagePath.replace(/\\/g, '/').split('/').filter(Boolean));
+          fs.unlink(full, () => {});
+        } catch { /* ignore */ }
+        pool.query('DELETE FROM "File" WHERE id = $1', [row.id]).catch(() => {});
+      }
+      if (res.rows.length > 0) console.log(`Limpeza de arquivos: ${res.rows.length} removidos`);
+    } catch (e) {
+      console.error('Erro na limpeza de arquivos:', e.message);
+    }
+  }
+  setInterval(cleanupExpiredFiles, 30 * 60 * 1000);
+  setTimeout(cleanupExpiredFiles, 60 * 1000);
 });
