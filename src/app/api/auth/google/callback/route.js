@@ -1,6 +1,6 @@
 import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
-import { signUserToken, consumeOAuthState } from '@/lib/session';
+import { consumeOAuthState, setSessionCookie } from '@/lib/session';
 
 // Função para gerar um customId único (ex: user#4829)
 async function generateUniqueCustomId(baseName) {
@@ -110,7 +110,8 @@ export async function GET(req) {
       user = result[0];
     }
 
-    // 4. Redirecionar de volta para a Home enviando os dados do usuário no query param para o client
+    // 4. Redirecionar de volta para a Home com o cookie de sessão já definido
+    //    (o token NUNCA vai na URL — só no cookie HttpOnly)
     const userJson = JSON.stringify({
       id: user.id,
       username: user.username,
@@ -123,9 +124,8 @@ export async function GET(req) {
       avatarUrl: user.avatarUrl
     });
 
-    const token = signUserToken(user);
-
-    return NextResponse.redirect(`${origin}/?user_data=${encodeURIComponent(userJson)}&token=${encodeURIComponent(token)}`);
+    const res = NextResponse.redirect(`${origin}/?user_data=${encodeURIComponent(userJson)}`);
+    return setSessionCookie(res, user);
 
   } catch (error) {
     console.error('Erro no Callback do Google Auth:', error);

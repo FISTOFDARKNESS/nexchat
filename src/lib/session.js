@@ -43,9 +43,56 @@ export function verifyUserToken(token) {
 }
 
 export function getAuthUser(req) {
+  // 1. Cookie de sessão HttpOnly (prioridade)
+  const cookieToken = req.cookies?.get(SESSION_COOKIE_NAME)?.value;
+  if (cookieToken) {
+    const payload = verifyUserToken(cookieToken);
+    if (payload) return payload;
+  }
+  // 2. Fallback: header Authorization Bearer (compatibilidade)
   const authHeader = req.headers.get('authorization') || '';
   if (!authHeader.startsWith('Bearer ')) return null;
   return verifyUserToken(authHeader.slice(7));
+}
+
+export const SESSION_COOKIE_NAME = 'nexchat_session';
+export const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 dias
+
+export function sessionCookieValue(user) {
+  return signUserToken(user);
+}
+
+export function sessionCookieAttributes() {
+  const secure = process.env.NODE_ENV === 'production';
+  return [
+    `Max-Age=${SESSION_COOKIE_MAX_AGE}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    ...(secure ? ['Secure'] : [])
+  ].join('; ');
+}
+
+// Define o cookie de sessão "imediatamente" ao autenticar
+export function setSessionCookie(res, user) {
+  res.cookies.set(SESSION_COOKIE_NAME, sessionCookieValue(user), {
+    httpOnly: true,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: SESSION_COOKIE_MAX_AGE,
+    secure: process.env.NODE_ENV === 'production'
+  });
+  return res;
+}
+
+export function clearSessionCookie(res) {
+  res.cookies.set(SESSION_COOKIE_NAME, '', {
+    httpOnly: true,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 0
+  });
+  return res;
 }
 
 const pendingOAuthStates = new Map();

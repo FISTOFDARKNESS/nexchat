@@ -536,6 +536,16 @@ export default function Home() {
       socket.emit('identify', { userId: user.id });
     });
 
+    // Sessão inválida (cookie ausente/expirado): exige novo login
+    socket.on('identify_error', ({ error }) => {
+      addToast(error || 'Sessão inválida. Faça login novamente.', 'error');
+      localStorage.removeItem('nexchat_user');
+      localStorage.removeItem('nexchat_token');
+      fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+      setUser(null);
+      socket.disconnect();
+    });
+
     socket.on('queue_waiting', () => {
       setQueueStatusText('Procurando alguém compatível com seus filtros...');
     });
@@ -826,6 +836,7 @@ export default function Home() {
   const handleLogout = () => {
     localStorage.removeItem('nexchat_user');
     localStorage.removeItem('nexchat_token');
+    fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
     setUser(null);
     setSelectedFriend(null);
     setFriendsList([]);

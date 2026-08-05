@@ -1,6 +1,6 @@
 import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
-import { signUserToken } from '@/lib/session';
+import { signUserToken, setSessionCookie } from '@/lib/session';
 
 // Função para gerar um customId único (ex: user#4829)
 async function generateUniqueCustomId(baseName) {
@@ -38,7 +38,8 @@ export async function POST(req) {
       );
 
       const user = result[0];
-      return NextResponse.json({ success: true, user, token: signUserToken(user) });
+      // Cookie de sessão é definido imediatamente no login
+      return setSessionCookie(NextResponse.json({ success: true, user, token: signUserToken(user) }), user);
     }
 
     // 2. REGISTRO / LOGIN COM GOOGLE
@@ -70,7 +71,7 @@ export async function POST(req) {
            RETURNING *`,
           [avatarUrl || null, user.id]
         );
-        return NextResponse.json({ success: true, user: updated[0], token: signUserToken(updated[0]) });
+        return setSessionCookie(NextResponse.json({ success: true, user: updated[0], token: signUserToken(updated[0]) }), updated[0]);
       }
 
       // Se não existir, cria um novo
@@ -83,7 +84,7 @@ export async function POST(req) {
       );
 
       const user = result[0];
-      return NextResponse.json({ success: true, user, token: signUserToken(user) });
+      return setSessionCookie(NextResponse.json({ success: true, user, token: signUserToken(user) }), user);
     }
 
     return NextResponse.json({ error: 'Ação inválida' }, { status: 400 });

@@ -2,6 +2,7 @@ const { createServer } = require('http');
 const { parse } = require('url');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const next = require('next');
 const { Server } = require('socket.io');
 const { Pool } = require('pg');
@@ -57,6 +58,49 @@ const port = process.env.PORT || 3000;
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
+// --- Sessão por cookie HttpOnly (mesmo HMAC do Next) ---
+const SESSION_COOKIE_NAME = 'nexchat_session';
+function getSecret() {
+  return process.env.JWT_SECRET || 'nexchat-dev-secret-change-me';
+}
+function safeEqual(a, b) {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ba.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ba, bb);
+}
+function verifySessionToken(token) {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [data, sig] = parts;
+  const expected = crypto.createHmac('sha256', getSecret()).update(data).digest('base64url');
+  if (!safeEqual(sig, expected)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(data, 'base64url').toString('utf8'));
+    if (!payload.id) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+function getCookie(req, name) {
+  const header = req?.headers?.cookie;
+  if (!header) return null;
+  for (const part of header.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() === name) {
+      try {
+        return decodeURIComponent(part.slice(eq + 1).trim());
+      } catch {
+        return part.slice(eq + 1).trim();
+      }
+    }
+  }
+  return null;
+}
+
 app.prepare().then(() => {
   const httpServer = createServer((req, res) => {
     const parsedUrl = parse(req.url, true);
@@ -91,6 +135,13 @@ app.prepare().then(() => {
 
     socket.on('identify', ({ userId } = {}) => {
       if (!userId) return;
+      // Valida a identidade pelo cookie de sessão (impede spoofing)
+      const sessionToken = getCookie(socket.handshake, SESSION_COOKIE_NAME);
+      const session = verifySessionToken(sessionToken);
+      if (!session || session.id !== userId) {
+        socket.emit('identify_error', { error: 'Sessão inválida. Faça login novamente.' });
+        return;
+      }
       const alreadyOnline = !userSockets[userId] || userSockets[userId].size === 0;
       socketUsers[socket.id] = userId;
       if (!userSockets[userId]) userSockets[userId] = new Set();
