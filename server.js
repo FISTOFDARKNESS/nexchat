@@ -5,6 +5,7 @@ const path = require('path');
 const next = require('next');
 const { Server } = require('socket.io');
 const { Pool } = require('pg');
+const DOMPurify = require('isomorphic-dompurify');
 
 // Carrega variáveis do .env local (no Render elas vêm do ambiente)
 function loadEnvFile(file) {
@@ -225,8 +226,11 @@ app.prepare().then(() => {
     socket.on('send_random_msg', (data) => {
       // data: { roomId, message: { id, content, senderId, senderName, parentMessageId, parentMessageContent } }
       const { roomId, message } = data;
-      // Retransmite para os membros da sala
-      socket.to(roomId).emit('receive_random_msg', message);
+      if (!message || typeof message.content !== 'string') return;
+      // Sanitiza o conteúdo contra XSS antes de retransmitir ao parceiro
+      const cleanContent = DOMPurify.sanitize(message.content).trim();
+      if (!cleanContent) return;
+      socket.to(roomId).emit('receive_random_msg', { ...message, content: cleanContent });
     });
 
     // Curtir mensagem no Chat Aleatório
