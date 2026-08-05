@@ -122,7 +122,26 @@ export async function POST(req) {
       }
     }
 
-    // 3. MARCAR MENSAGENS RECEBIDAS COMO LIDAS (READ)
+    // 3. APAGAR MENSAGEM (DELETE - apenas o remetente)
+    if (action === 'delete') {
+      const { messageId } = body;
+      if (!messageId) {
+        return NextResponse.json({ error: 'messageId é obrigatório' }, { status: 400 });
+      }
+
+      const result = await sql(
+        'DELETE FROM "DirectMessage" WHERE id = $1 AND "senderId" = $2 RETURNING id',
+        [messageId, userId]
+      );
+
+      if (result.length === 0) {
+        return NextResponse.json({ error: 'Mensagem não encontrada ou sem permissão' }, { status: 404 });
+      }
+
+      return NextResponse.json({ success: true, messageId });
+    }
+
+    // 4. MARCAR MENSAGENS RECEBIDAS COMO LIDAS (READ)
     if (action === 'read') {
       const { senderId } = body;
       if (!senderId) {

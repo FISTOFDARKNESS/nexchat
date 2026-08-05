@@ -305,6 +305,21 @@ app.prepare().then(() => {
       }
     });
 
+    socket.on('delete_friend_msg', (data) => {
+      // data: { roomId, messageId, friendId (destinatário, para entrega direta) }
+      const { roomId, messageId, friendId } = data;
+      if (!roomId || !messageId) return;
+      socket.to(roomId).emit('friend_msg_deleted', { messageId });
+      if (friendId) {
+        const members = io.sockets.adapter.rooms.get(roomId);
+        for (const [id, sock] of io.sockets.sockets) {
+          if (socketUsers[id] === friendId && (!members || !members.has(id))) {
+            sock.emit('friend_msg_deleted', { messageId });
+          }
+        }
+      }
+    });
+
     socket.on('friend_typing', (data) => {
       // data: { roomId, senderId, isTyping }
       const { roomId, senderId, isTyping } = data;

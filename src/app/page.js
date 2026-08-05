@@ -165,6 +165,7 @@ export default function Home() {
   // --- Referências de Elementos e WebRTC ---
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  const remoteAudioRef = useRef(null); // Áudio oculto para chamadas sem vídeo
   const messagesEndRef = useRef(null);
   const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
@@ -208,6 +209,13 @@ export default function Home() {
       remoteVideoRef.current.play().catch(e => console.log('Autoplay remote stream error:', e));
     }
   }, [inRandomChat, callState, matchMode, useMedia, activeCallRoom, activeView]);
+
+  useEffect(() => {
+    if (remoteAudioRef.current && remoteStreamRef.current) {
+      remoteAudioRef.current.srcObject = remoteStreamRef.current;
+      remoteAudioRef.current.play().catch(e => console.log('Autoplay remote audio error:', e));
+    }
+  }, [inRandomChat, callState, callType, matchMode, useMedia, activeCallRoom, activeView]);
 
   // Carregar dados de amigos via API
   const loadFriends = useCallback(async () => {
@@ -413,9 +421,11 @@ export default function Home() {
       peerConnectionRef.current.ontrack = (event) => {
         if (event.streams[0]) {
           remoteStreamRef.current = event.streams[0];
-          if (remoteVideoRef.current) {
-            remoteVideoRef.current.srcObject = event.streams[0];
-            remoteVideoRef.current.play().catch(e => console.log('Autoplay remote stream error:', e));
+          // Em chamada de áudio não há <video>, então anexa ao <audio> oculto
+          const target = remoteVideoRef.current || remoteAudioRef.current;
+          if (target) {
+            target.srcObject = event.streams[0];
+            target.play().catch(e => console.log('Autoplay remote stream error:', e));
           }
         }
       };
@@ -587,6 +597,10 @@ export default function Home() {
       setMessages(prev => prev.map(m =>
         m.senderId === user.id && !m.readAt ? { ...m, readAt: new Date().toISOString() } : m
       ));
+    });
+
+    socket.on('friend_msg_deleted', ({ messageId }) => {
+      setMessages(prev => prev.filter(m => m.id !== messageId));
     });
 
     socket.on('user_online', (data) => {
@@ -814,6 +828,30 @@ export default function Home() {
       } catch (err) {
         console.error('Erro ao enviar mensagem privada:', err);
       }
+    }
+  };
+
+  // --- Apagar mensagem direta (apenas remetente) ---
+  const handleDeleteMessage = async (msgId) => {
+    if (!user || !selectedFriend) return;
+    if (!confirm('Apagar esta mensagem para todos?')) return;
+    try {
+      const res = await authedFetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', messageId: msgId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMessages(prev => prev.filter(m => m.id !== msgId));
+        const sortedIds = [user.id, selectedFriend.friendId].sort();
+        const chatRoomId = `friend_chat_${sortedIds[0]}_${sortedIds[1]}`;
+        socket.emit('delete_friend_msg', { roomId: chatRoomId, messageId: msgId, friendId: selectedFriend.friendId });
+      } else {
+        addToast(data.error || 'Não foi possível apagar a mensagem', 'error');
+      }
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -1561,6 +1599,7 @@ export default function Home() {
             {/* Indicador de Chamada de Áudio (sem tela de vídeo) */}
             {callState === 'connected' && callType === 'audio' && (
               <div style={{ height: isMobile ? '56px' : '64px', background: 'var(--bg-2)', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', flexShrink: 0 }}>
+                <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
                 <span style={{ fontSize: '13px', color: 'var(--gold)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <Phone size={14} /> Em chamada de áudio...
                 </span>
@@ -1718,6 +1757,9 @@ export default function Home() {
                       <button onClick={() => handleLikeMessage(msg.id)} style={{ color: liked ? 'var(--gold)' : 'var(--muted)', border: 'none', background: 'none' }}>
                         {liked ? 'Descurtir' : 'Curtir'}
                       </button>
+                      {isMe && selectedFriend && !inRandomChat && (
+                        <button onClick={() => handleDeleteMessage(msg.id)} style={{ color: 'var(--red)', border: 'none', background: 'none' }}>Apagar</button>
+                      )}
                     </div>
                   </div>
                 );
