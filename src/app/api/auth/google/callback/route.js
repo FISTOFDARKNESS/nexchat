@@ -1,36 +1,40 @@
 import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
+import { signUserToken, consumeOAuthState } from '@/lib/session';
 
 // Função para gerar um customId único (ex: user#4829)
 async function generateUniqueCustomId(baseName) {
   const cleanName = baseName.replace(/[^a-zA-Z0-9]/g, '').toLowerCase().slice(0, 15);
-  let isUnique = false;
-  let customId = '';
-  
-  while (!isUnique) {
+  for (let attempt = 0; attempt < 50; attempt++) {
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-    customId = `${cleanName}#${randomSuffix}`;
-    
+    const customId = `${cleanName}#${randomSuffix}`;
+
     const existing = await sql('SELECT id FROM "User" WHERE "customId" = $1 LIMIT 1', [customId]);
     if (existing.length === 0) {
-      isUnique = true;
+      return customId;
     }
   }
-  return customId;
+  throw new Error('Não foi possível gerar um customId único');
 }
 
 export async function GET(req) {
   try {
+    const origin = process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin;
     const { searchParams } = new URL(req.url);
     const code = searchParams.get('code');
+    const state = searchParams.get('state');
 
     if (!code) {
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/?auth_error=Código de autenticação ausente`);
+      return NextResponse.redirect(`${origin}/?auth_error=Código de autenticação ausente`);
+    }
+
+    if (!consumeOAuthState(state)) {
+      return NextResponse.redirect(`${origin}/?auth_error=${encodeURIComponent('Estado de autenticação inválido. Tente novamente.')}`);
     }
 
     const clientId = process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_KEY || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET_KEY || process.env.GOOGLE_SECRET_KEY;
-    const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/google/callback`;
+    const redirectUri = `${new URL(req.url).origin}/api/auth/google/callback`;
 
     // 1. Trocar o código pelo Access Token do Google
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
@@ -49,7 +53,7 @@ export async function GET(req) {
 
     if (tokenData.error) {
       console.error('Erro ao trocar token do Google:', tokenData);
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/?auth_error=${encodeURIComponent(tokenData.error_description || 'Erro de token')}`);
+      return NextResponse.redirect(`${origin}/?auth_error=${encodeURIComponent(tokenData.error_description || 'Erro de token')}`);
     }
 
     // 2. Buscar informações do perfil do usuário usando o Access Token
@@ -60,7 +64,7 @@ export async function GET(req) {
     const googleUser = await userinfoRes.json();
 
     if (!googleUser.email) {
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/?auth_error=E-mail não fornecido pelo Google`);
+      return NextResponse.redirect(`${origin}/?auth_error=E-mail não fornecido pelo Google`);
     }
 
     // 3. Salvar ou sincronizar no banco de dados local
@@ -82,7 +86,7 @@ export async function GET(req) {
         [user.id]
       );
       if (bans.length > 0) {
-        return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/?auth_error=${encodeURIComponent('Sua conta foi banida: ' + bans[0].reason)}`);
+        return NextResponse.redirect(`${origin}/?auth_error=${encodeURIComponent('Sua conta foi banida: ' + bans[0].reason)}`);
       }
 
       // Atualiza o avatar
@@ -119,10 +123,12 @@ export async function GET(req) {
       avatarUrl: user.avatarUrl
     });
 
-    return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/?user_data=${encodeURIComponent(userJson)}`);
+    const token = signUserToken(user);
+
+    return NextResponse.redirect(`${origin}/?user_data=${encodeURIComponent(userJson)}&token=${encodeURIComponent(token)}`);
 
   } catch (error) {
     console.error('Erro no Callback do Google Auth:', error);
-    return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/?auth_error=${encodeURIComponent(error.message)}`);
+    return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin}/?auth_error=${encodeURIComponent(error.message)}`);
   }
 }

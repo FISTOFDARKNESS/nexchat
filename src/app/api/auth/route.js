@@ -1,23 +1,20 @@
 import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
+import { signUserToken } from '@/lib/session';
 
 // Função para gerar um customId único (ex: user#4829)
 async function generateUniqueCustomId(baseName) {
   const cleanName = baseName.replace(/[^a-zA-Z0-9]/g, '').toLowerCase().slice(0, 15);
-  let isUnique = false;
-  let customId = '';
-  
-  while (!isUnique) {
+  for (let attempt = 0; attempt < 50; attempt++) {
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-    customId = `${cleanName}#${randomSuffix}`;
-    
-    // Verifica se já existe no banco
+    const customId = `${cleanName}#${randomSuffix}`;
+
     const existing = await sql('SELECT id FROM "User" WHERE "customId" = $1 LIMIT 1', [customId]);
     if (existing.length === 0) {
-      isUnique = true;
+      return customId;
     }
   }
-  return customId;
+  throw new Error('Não foi possível gerar um customId único');
 }
 
 export async function POST(req) {
@@ -41,7 +38,7 @@ export async function POST(req) {
       );
 
       const user = result[0];
-      return NextResponse.json({ success: true, user });
+      return NextResponse.json({ success: true, user, token: signUserToken(user) });
     }
 
     // 2. REGISTRO / LOGIN COM GOOGLE
@@ -73,7 +70,7 @@ export async function POST(req) {
            RETURNING *`,
           [avatarUrl || null, user.id]
         );
-        return NextResponse.json({ success: true, user: updated[0] });
+        return NextResponse.json({ success: true, user: updated[0], token: signUserToken(updated[0]) });
       }
 
       // Se não existir, cria um novo
@@ -86,7 +83,7 @@ export async function POST(req) {
       );
 
       const user = result[0];
-      return NextResponse.json({ success: true, user });
+      return NextResponse.json({ success: true, user, token: signUserToken(user) });
     }
 
     return NextResponse.json({ error: 'Ação inválida' }, { status: 400 });

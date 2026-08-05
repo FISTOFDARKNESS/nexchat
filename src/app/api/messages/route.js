@@ -1,15 +1,21 @@
 import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import DOMPurify from 'isomorphic-dompurify';
+import { getAuthUser } from '@/lib/session';
 
 export async function GET(req) {
   try {
+    const auth = getAuthUser(req);
+    if (!auth) {
+      return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+    }
+    const userId = auth.id;
+
     const { searchParams } = new URL(req.url);
-    const userId = searchParams.get('userId');
     const friendId = searchParams.get('friendId');
 
-    if (!userId || !friendId) {
-      return NextResponse.json({ error: 'userId e friendId são obrigatórios' }, { status: 400 });
+    if (!friendId) {
+      return NextResponse.json({ error: 'friendId é obrigatório' }, { status: 400 });
     }
 
     // Busca as mensagens e as informações de quem enviou e respondeu
@@ -40,12 +46,18 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
+    const auth = getAuthUser(req);
+    if (!auth) {
+      return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+    }
+    const userId = auth.id;
+
     const body = await req.json();
-    const { action, senderId, receiverId, content, parentMessageId, messageId, userId } = body;
+    const { action, receiverId, content, parentMessageId, messageId } = body;
 
     // 1. SALVAR NOVA MENSAGEM (SEND)
     if (action === 'send') {
-      if (!senderId || !receiverId || !content) {
+      if (!receiverId || !content) {
         return NextResponse.json({ error: 'Parâmetros insuficientes para enviar mensagem' }, { status: 400 });
       }
 
@@ -61,7 +73,7 @@ export async function POST(req) {
         `INSERT INTO "DirectMessage" ("senderId", "receiverId", content, "parentMessageId")
          VALUES ($1, $2, $3, $4)
          RETURNING *`,
-        [senderId, receiverId, cleanContent, parentMessageId || null]
+        [userId, receiverId, cleanContent, parentMessageId || null]
       );
 
       const msg = result[0];

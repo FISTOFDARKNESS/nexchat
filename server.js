@@ -17,7 +17,7 @@ app.prepare().then(() => {
 
   const io = new Server(httpServer, {
     cors: {
-      origin: "*",
+      origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()) : false,
       methods: ["GET", "POST"]
     }
   });
@@ -29,8 +29,20 @@ app.prepare().then(() => {
   // Quartos ativos do Omegle: roomId -> { peerA: socketId, peerB: socketId }
   let activeRandomRooms = {};
 
+  // Chamadas diretas ativas: callRoomId -> { callerSocketId, callerUserId, calleeUserId }
+  let activeCalls = {};
+
+  // Mapeia socketId -> userId (definido via evento 'identify')
+  let socketUsers = {};
+
   io.on('connection', (socket) => {
     console.log(`Socket conectado: ${socket.id}`);
+
+    socket.on('identify', ({ userId } = {}) => {
+      if (userId) {
+        socketUsers[socket.id] = userId;
+      }
+    });
 
     // 1. FILA DE MATCHMAKING (OMEGLE)
     socket.on('join_queue', (userData) => {
@@ -231,28 +243,53 @@ app.prepare().then(() => {
     socket.on('call_friend', (data) => {
       // data: { friendUserId, callerData: { id, username, avatarUrl }, type: 'audio'|'video', callRoomId }
       const { friendUserId, callerData, type, callRoomId } = data;
-      // Envia evento global ou envia para a sala individual do amigo
-      io.emit(`incoming_call_to_${friendUserId}`, { callerData, type, callRoomId });
+      if (!callRoomId || !friendUserId) return;
+
+      // Caller entra na sala da chamada para receber aceite/rejeição e sinalização
+      socket.join(callRoomId);
+      activeCalls[callRoomId] = {
+        callerSocketId: socket.id,
+        callerUserId: socketUsers[socket.id],
+        calleeUserId: friendUserId
+      };
+
+      // Envia a chamada apenas para o socket do amigo
+      for (const [id, sock] of io.sockets.sockets) {
+        if (socketUsers[id] === friendUserId) {
+          sock.emit(`incoming_call_to_${friendUserId}`, { callerData, type, callRoomId });
+          break;
+        }
+      }
     });
 
     socket.on('accept_friend_call', (data) => {
       // data: { callRoomId }
       const { callRoomId } = data;
+      const call = activeCalls[callRoomId];
+      if (!call || socketUsers[socket.id] !== call.calleeUserId) return;
       socket.join(callRoomId);
-      io.emit(`call_accepted_for_${callRoomId}`);
+      io.to(callRoomId).emit(`call_accepted_for_${callRoomId}`);
     });
 
     socket.on('reject_friend_call', (data) => {
       // data: { callRoomId }
       const { callRoomId } = data;
-      io.emit(`call_rejected_for_${callRoomId}`);
+      const call = activeCalls[callRoomId];
+      if (!call || socketUsers[socket.id] !== call.calleeUserId) return;
+      io.to(callRoomId).emit(`call_rejected_for_${callRoomId}`);
+      socket.leave(callRoomId);
+      delete activeCalls[callRoomId];
     });
 
     socket.on('end_friend_call', (data) => {
       // data: { callRoomId }
       const { callRoomId } = data;
+      const call = activeCalls[callRoomId];
+      if (!call) return;
+      if (socket.id !== call.callerSocketId && socketUsers[socket.id] !== call.calleeUserId) return;
       io.to(callRoomId).emit('friend_call_ended');
       socket.leave(callRoomId);
+      delete activeCalls[callRoomId];
     });
 
     // 5. DESCONEXÃO E LIMPEZA
@@ -261,6 +298,18 @@ app.prepare().then(() => {
       
       // Remove da fila de matchmaking se estiver nela
       matchmakingQueue = matchmakingQueue.filter(item => item.socketId !== socket.id);
+
+      // Limpa a identidade do socket
+      delete socketUsers[socket.id];
+
+      // Encerra chamadas diretas em que este socket era participante
+      for (const roomId in activeCalls) {
+        const call = activeCalls[roomId];
+        if (call.callerSocketId === socket.id || socketUsers[socket.id] === call.calleeUserId) {
+          io.to(roomId).emit('friend_call_ended');
+          delete activeCalls[roomId];
+        }
+      }
 
       // Limpa qualquer sala ativa do Omegle que esse socket estava participando
       for (const roomId in activeRandomRooms) {

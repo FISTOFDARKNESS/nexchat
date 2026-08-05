@@ -1,12 +1,19 @@
 import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
+import { getAuthUser } from '@/lib/session';
 
 export async function POST(req) {
   try {
-    const body = await req.json();
-    const { reporterId, reportedId, reason, details } = body;
+    const auth = getAuthUser(req);
+    if (!auth) {
+      return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+    }
+    const reporterId = auth.id;
 
-    if (!reporterId || !reportedId || !reason) {
+    const body = await req.json();
+    const { reportedId, reason, details } = body;
+
+    if (!reportedId || !reason) {
       return NextResponse.json({ error: 'Parâmetros insuficientes' }, { status: 400 });
     }
 

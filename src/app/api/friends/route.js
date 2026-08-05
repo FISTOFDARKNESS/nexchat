@@ -1,5 +1,6 @@
 import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
+import { getAuthUser } from '@/lib/session';
 
 // Função auxiliar para ordenar dois IDs
 function sortUserIds(id1, id2) {
@@ -8,12 +9,11 @@ function sortUserIds(id1, id2) {
 
 export async function GET(req) {
   try {
-    const { searchParams } = new URL(req.url);
-    const userId = searchParams.get('userId');
-
-    if (!userId) {
-      return NextResponse.json({ error: 'userId é obrigatório' }, { status: 400 });
+    const auth = getAuthUser(req);
+    if (!auth) {
+      return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
     }
+    const userId = auth.id;
 
     // Buscar lista de amigos aceitos
     // Precisamos unir com a tabela User para pegar as informações do amigo
@@ -62,11 +62,13 @@ export async function GET(req) {
 export async function POST(req) {
   try {
     const body = await req.json();
-    const { action, userId, friendId, friendCustomId } = body;
+    const { action, friendId, friendCustomId } = body;
 
-    if (!userId) {
-      return NextResponse.json({ error: 'userId é obrigatório' }, { status: 400 });
+    const auth = getAuthUser(req);
+    if (!auth) {
+      return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
     }
+    const userId = auth.id;
 
     let targetFriendId = friendId;
 
@@ -169,7 +171,7 @@ export async function POST(req) {
       if (existing.length > 0) {
         const result = await sql(
           `UPDATE "Friendship" 
-           SET status = 'BLOCKED', "senderId" = $3, "updatedAt" = now()
+           SET status = 'BLOCKED', "senderId" = $2, "updatedAt" = now()
            WHERE id = $1 RETURNING *`,
           [existing[0].id, userId]
         );

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import io from 'socket.io-client';
 import { 
   Video, Phone, UserPlus, Send, Heart, Smile, Shield, Flag, X, 
@@ -10,6 +10,20 @@ import {
 } from 'lucide-react';
 
 let socket;
+
+const rtcConfig = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ]
+};
+
+function authedFetch(url, options = {}) {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('nexchat_token') : null;
+  const headers = { ...(options.headers || {}) };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return fetch(url, { ...options, headers });
+}
 
 export default function Home() {
   // --- Estados do Sistema ---
@@ -31,13 +45,13 @@ export default function Home() {
   // --- Sistema de Toasts Personalizados ---
   const [toasts, setToasts] = useState([]);
   
-  const addToast = (message, type = 'info') => {
+  const addToast = useCallback((message, type = 'info') => {
     const id = Date.now() + Math.random().toString(36).substr(2, 5);
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, 4500);
-  };
+  }, []);
 
   // --- Efeito: Detectar se é Mobile e Redimensionar ---
   useEffect(() => {
@@ -51,37 +65,43 @@ export default function Home() {
 
   // --- Efeito: Carregar Sessão Local ou Parâmetros da URL ---
   useEffect(() => {
-    const query = new URLSearchParams(window.location.search);
-    const userDataParam = query.get('user_data');
-    const authErrorParam = query.get('auth_error');
+    const timer = setTimeout(() => {
+      const query = new URLSearchParams(window.location.search);
+      const userDataParam = query.get('user_data');
+      const authErrorParam = query.get('auth_error');
+      const tokenParam = query.get('token');
 
-    if (userDataParam) {
-      try {
-        const parsedUser = JSON.parse(decodeURIComponent(userDataParam));
-        setUser(parsedUser);
-        localStorage.setItem('nexchat_user', JSON.stringify(parsedUser));
-        addToast(`Conectado com sucesso! Bem-vindo, ${parsedUser.username}!`, 'success');
-      } catch (err) {
-        console.error('Erro ao ler dados da URL:', err);
+      if (tokenParam) {
+        localStorage.setItem('nexchat_token', tokenParam);
       }
-      // Limpa os parâmetros da URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (authErrorParam) {
-      addToast(decodeURIComponent(authErrorParam), 'error');
-      setAuthError(decodeURIComponent(authErrorParam));
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else {
-      // Se não vier na URL, busca no localStorage
-      const savedUser = localStorage.getItem('nexchat_user');
-      if (savedUser) {
+
+      if (userDataParam) {
         try {
-          setUser(JSON.parse(savedUser));
-        } catch (e) {
-          localStorage.removeItem('nexchat_user');
+          const parsedUser = JSON.parse(decodeURIComponent(userDataParam));
+          setUser(parsedUser);
+          localStorage.setItem('nexchat_user', JSON.stringify(parsedUser));
+          addToast(`Conectado com sucesso! Bem-vindo, ${parsedUser.username}!`, 'success');
+        } catch (err) {
+          console.error('Erro ao ler dados da URL:', err);
+        }
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else if (authErrorParam) {
+        addToast(decodeURIComponent(authErrorParam), 'error');
+        setAuthError(decodeURIComponent(authErrorParam));
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else {
+        const savedUser = localStorage.getItem('nexchat_user');
+        if (savedUser) {
+          try {
+            setUser(JSON.parse(savedUser));
+          } catch (e) {
+            localStorage.removeItem('nexchat_user');
+          }
         }
       }
-    }
-  }, []);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [addToast]);
 
   // --- Estados do Chat e Amizade ---
   const [friendsList, setFriendsList] = useState([]);
@@ -140,14 +160,25 @@ export default function Home() {
   const localStreamRef = useRef(null);
   const remoteStreamRef = useRef(null);
 
-  // Configuração STUN pública gratuita
-  const rtcConfig = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' }
-    ]
-  };
+  // --- Refs com os valores mais recentes (para handlers do socket) ---
+  const matchModeRef = useRef(matchMode);
+  const useMediaRef = useRef(useMedia);
+  const randomRoomIdRef = useRef(randomRoomId);
+  const activeCallRoomRef = useRef(activeCallRoom);
+  const selectedFriendRef = useRef(selectedFriend);
+  const callStateRef = useRef(callState);
+  const inRandomChatRef = useRef(inRandomChat);
+  const callListenersRef = useRef([]);
 
+  useEffect(() => {
+    matchModeRef.current = matchMode;
+    useMediaRef.current = useMedia;
+    randomRoomIdRef.current = randomRoomId;
+    activeCallRoomRef.current = activeCallRoom;
+    selectedFriendRef.current = selectedFriend;
+    callStateRef.current = callState;
+    inRandomChatRef.current = inRandomChat;
+  });
   // --- Efeito: Auto-scroll no Chat ---
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -168,182 +199,11 @@ export default function Home() {
     }
   }, [inRandomChat, callState, matchMode, useMedia, activeCallRoom, activeView]);
 
-  // --- Efeito: Inicializar Socket se Usuário Logar ---
-  useEffect(() => {
-    if (!user) return;
-
-    // Conectar ao WebSocket
-    socket = io();
-
-    socket.on('connect', () => {
-      console.log('Conectado ao WebSocket local');
-    });
-
-    // 1. Ouvintes do Matchmaking
-    socket.on('queue_waiting', () => {
-      setQueueStatusText('Procurando alguém compatível com seus filtros...');
-    });
-
-    socket.on('match_found', async (data) => {
-      const { roomId, role, partner } = data;
-      console.log('Par encontrado!', partner, 'Cargo:', role);
-      setInQueue(false);
-      setInRandomChat(true);
-      setRandomRoomId(roomId);
-      setRandomPartner(partner);
-      setRandomFriendRequestStatus('none');
-      setMessages([]);
-      setReplyingTo(null);
-      setActiveView('chat'); // Muda a visualização no mobile automaticamente
-      addToast(`Conectado com um parceiro de ${partner.country}!`, 'success');
-
-      if (matchMode === 'video' && useMedia) {
-        setQueueStatusText('Iniciando stream de vídeo...');
-        await initWebRTC(roomId, role);
-      }
-    });
-
-    socket.on('peer_left', () => {
-      addToast('Seu parceiro de chat desconectou.', 'warning');
-      cleanupCall();
-      setInRandomChat(false);
-      setRandomRoomId(null);
-      setRandomPartner(null);
-      setRandomFriendRequestStatus('none');
-    });
-
-    socket.on('receive_random_msg', (msg) => {
-      setMessages(prev => [...prev, msg]);
-    });
-
-    socket.on('receive_random_msg_like', (data) => {
-      const { messageId, likedByUserId } = data;
-      setMessages(prev => prev.map(m => {
-        if (m.id === messageId) {
-          const alreadyLiked = m.likedBy.includes(likedByUserId);
-          return {
-            ...m,
-            likedBy: alreadyLiked 
-              ? m.likedBy.filter(id => id !== likedByUserId)
-              : [...m.likedBy, likedByUserId]
-          };
-        }
-        return m;
-      }));
-    });
-
-    socket.on('receive_random_friend_request', (data) => {
-      setRandomFriendRequestStatus('received');
-      addToast('Seu parceiro de chat enviou um pedido de amizade! Clique em Solicitar para aceitar.', 'info');
-      loadFriends(); // Atualiza lista
-    });
-
-    socket.on('receive_random_friend_accepted', () => {
-      setRandomFriendRequestStatus('accepted');
-      addToast('Amizade estabelecida em tempo real! 🎉', 'success');
-      loadFriends();
-    });
-
-    // 2. Ouvintes de WebRTC (Sinalização com tratamento de Race Condition)
-    socket.on('webrtc_offer', async (data) => {
-      const rId = randomRoomId || activeCallRoom;
-      if (!peerConnectionRef.current && rId) {
-        // Inicializa o PC imediatamente para responder a oferta
-        await initWebRTC(rId, 'receiver');
-      }
-      if (peerConnectionRef.current) {
-        try {
-          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.offer));
-          const answer = await peerConnectionRef.current.createAnswer();
-          await peerConnectionRef.current.setLocalDescription(answer);
-          socket.emit('webrtc_answer', { roomId: rId, answer });
-        } catch (err) {
-          console.error('Erro ao processar webrtc_offer:', err);
-        }
-      }
-    });
-
-    socket.on('webrtc_answer', async (data) => {
-      if (peerConnectionRef.current) {
-        try {
-          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
-        } catch (err) {
-          console.error('Erro ao processar webrtc_answer:', err);
-        }
-      }
-    });
-
-    socket.on('webrtc_ice_candidate', async (data) => {
-      if (peerConnectionRef.current && data.candidate) {
-        try {
-          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
-        } catch (e) {
-          console.error('Erro ao adicionar ICE Candidate:', e);
-        }
-      }
-    });
-
-    // 3. Ouvintes de Chat Privado com Amigos
-    socket.on('receive_friend_msg', (msg) => {
-      // Só adiciona na tela se a conversa ativa for com o remetente
-      if (selectedFriend && (msg.senderId === selectedFriend.friendId || msg.receiverId === selectedFriend.friendId)) {
-        setMessages(prev => [...prev, msg]);
-      } else {
-        addToast(`Nova mensagem de amizade!`, 'info');
-        loadFriends();
-      }
-    });
-
-    socket.on('receive_friend_msg_like', (data) => {
-      const { messageId, likedByUserId } = data;
-      setMessages(prev => prev.map(m => {
-        if (m.id === messageId) {
-          const alreadyLiked = m.likedBy.includes(likedByUserId);
-          return {
-            ...m,
-            likedBy: alreadyLiked 
-              ? m.likedBy.filter(id => id !== likedByUserId)
-              : [...m.likedBy, likedByUserId]
-          };
-        }
-        return m;
-      }));
-    });
-
-    // 4. Ouvintes de Chamada com Amigos
-    socket.on(`incoming_call_to_${user.id}`, (data) => {
-      if (callState === 'idle' && !inRandomChat) {
-        setIncomingCall(data);
-        setCallType(data.type);
-      } else {
-        socket.emit('reject_friend_call', { callRoomId: data.callRoomId });
-      }
-    });
-
-    socket.on(`call_accepted_for_${user.id}`, () => {
-      // Callback local de aceitação
-    });
-
-    socket.on('friend_call_ended', () => {
-      addToast('Chamada encerrada pelo amigo.', 'warning');
-      cleanupCall();
-    });
-
-    // Carregar amigos e solicitações iniciais
-    loadFriends();
-
-    return () => {
-      if (socket) {
-        socket.disconnect();
-      }
-    };
-  }, [user, randomRoomId, activeCallRoom]);
-
   // Carregar dados de amigos via API
-  const loadFriends = async () => {
+  const loadFriends = useCallback(async () => {
     if (!user) return;
     try {
-      const res = await fetch(`/api/friends?userId=${user.id}`);
+      const res = await authedFetch('/api/friends');
       const data = await res.json();
       if (data.success) {
         setFriendsList(data.friends || []);
@@ -353,26 +213,27 @@ export default function Home() {
     } catch (err) {
       console.error('Erro ao buscar amigos:', err);
     }
-  };
+  }, [user]);
 
   // Carregar mensagens históricas com o amigo selecionado
   useEffect(() => {
     if (!selectedFriend || !user) return;
-    setInRandomChat(false);
-    setInQueue(false);
-    setActiveView('chat'); // Muda a visualização no mobile automaticamente
-    
-    // Join room do Socket para chat com este amigo
+
     const sortedIds = [user.id, selectedFriend.friendId].sort();
     const chatRoomId = `friend_chat_${sortedIds[0]}_${sortedIds[1]}`;
-    
-    if (socket) {
-      socket.emit('join_friend_chat', { roomId: chatRoomId });
-    }
 
-    const fetchHistory = async () => {
+    const run = async () => {
+      await Promise.resolve();
+      setInRandomChat(false);
+      setInQueue(false);
+      setActiveView('chat');
+
+      if (socket) {
+        socket.emit('join_friend_chat', { roomId: chatRoomId });
+      }
+
       try {
-        const res = await fetch(`/api/messages?userId=${user.id}&friendId=${selectedFriend.friendId}`);
+        const res = await authedFetch(`/api/messages?friendId=${selectedFriend.friendId}`);
         const data = await res.json();
         if (data.success) {
           setMessages(data.messages || []);
@@ -381,14 +242,14 @@ export default function Home() {
         console.error(e);
       }
     };
-    fetchHistory();
+    run();
 
     return () => {
       if (socket) {
         socket.emit('leave_friend_chat', { roomId: chatRoomId });
       }
     };
-  }, [selectedFriend]);
+  }, [selectedFriend, user]);
 
   // --- Inicializar Câmera e Áudio ---
   const requestMediaPermissions = async (wantsMedia = true) => {
@@ -412,8 +273,14 @@ export default function Home() {
     setConsentGranted(true);
   };
 
+  const removeCallListeners = useCallback(() => {
+    if (!socket) return;
+    callListenersRef.current.forEach(({ event, handler }) => socket.off(event, handler));
+    callListenersRef.current = [];
+  }, []);
+
   // --- WebRTC signaling logic ---
-  const initWebRTC = async (roomId, role) => {
+  const initWebRTC = useCallback(async (roomId, role) => {
     try {
       peerConnectionRef.current = new RTCPeerConnection(rtcConfig);
 
@@ -450,9 +317,10 @@ export default function Home() {
     } catch (err) {
       console.error('Erro ao inicializar WebRTC:', err);
     }
-  };
+  }, []);
 
-  const cleanupCall = () => {
+  const cleanupCall = useCallback(() => {
+    removeCallListeners();
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close();
       peerConnectionRef.current = null;
@@ -463,7 +331,170 @@ export default function Home() {
     remoteStreamRef.current = null;
     setCallState('idle');
     setActiveCallRoom(null);
-  };
+  }, [removeCallListeners]);
+
+  // --- Efeito: Inicializar Socket se Usuário Logar ---
+  useEffect(() => {
+    if (!user) return;
+
+    socket = io();
+
+    socket.on('connect', () => {
+      console.log('Conectado ao WebSocket local');
+      socket.emit('identify', { userId: user.id });
+    });
+
+    socket.on('queue_waiting', () => {
+      setQueueStatusText('Procurando alguém compatível com seus filtros...');
+    });
+
+    socket.on('match_found', async (data) => {
+      const { roomId, role, partner } = data;
+      console.log('Par encontrado!', partner, 'Cargo:', role);
+      setInQueue(false);
+      setInRandomChat(true);
+      setRandomRoomId(roomId);
+      setRandomPartner(partner);
+      setRandomFriendRequestStatus('none');
+      setMessages([]);
+      setReplyingTo(null);
+      setActiveView('chat');
+      addToast(`Conectado com um parceiro de ${partner.country}!`, 'success');
+
+      if (matchModeRef.current === 'video' && useMediaRef.current) {
+        setQueueStatusText('Iniciando stream de vídeo...');
+        await initWebRTC(roomId, role);
+      }
+    });
+
+    socket.on('peer_left', () => {
+      addToast('Seu parceiro de chat desconectou.', 'warning');
+      cleanupCall();
+      setInRandomChat(false);
+      setRandomRoomId(null);
+      setRandomPartner(null);
+      setRandomFriendRequestStatus('none');
+    });
+
+    socket.on('receive_random_msg', (msg) => {
+      setMessages(prev => [...prev, msg]);
+    });
+
+    socket.on('receive_random_msg_like', (data) => {
+      const { messageId, likedByUserId } = data;
+      setMessages(prev => prev.map(m => {
+        if (m.id === messageId) {
+          const alreadyLiked = m.likedBy.includes(likedByUserId);
+          return {
+            ...m,
+            likedBy: alreadyLiked 
+              ? m.likedBy.filter(id => id !== likedByUserId)
+              : [...m.likedBy, likedByUserId]
+          };
+        }
+        return m;
+      }));
+    });
+
+    socket.on('receive_random_friend_request', () => {
+      setRandomFriendRequestStatus('received');
+      addToast('Seu parceiro de chat enviou um pedido de amizade! Clique em Solicitar para aceitar.', 'info');
+      loadFriends();
+    });
+
+    socket.on('receive_random_friend_accepted', () => {
+      setRandomFriendRequestStatus('accepted');
+      addToast('Amizade estabelecida em tempo real! 🎉', 'success');
+      loadFriends();
+    });
+
+    socket.on('webrtc_offer', async (data) => {
+      const rId = randomRoomIdRef.current || activeCallRoomRef.current;
+      if (!peerConnectionRef.current && rId) {
+        await initWebRTC(rId, 'receiver');
+      }
+      if (peerConnectionRef.current) {
+        try {
+          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.offer));
+          const answer = await peerConnectionRef.current.createAnswer();
+          await peerConnectionRef.current.setLocalDescription(answer);
+          socket.emit('webrtc_answer', { roomId: rId, answer });
+        } catch (err) {
+          console.error('Erro ao processar webrtc_offer:', err);
+        }
+      }
+    });
+
+    socket.on('webrtc_answer', async (data) => {
+      if (peerConnectionRef.current) {
+        try {
+          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+        } catch (err) {
+          console.error('Erro ao processar webrtc_answer:', err);
+        }
+      }
+    });
+
+    socket.on('webrtc_ice_candidate', async (data) => {
+      if (peerConnectionRef.current && data.candidate) {
+        try {
+          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+        } catch (e) {
+          console.error('Erro ao adicionar ICE Candidate:', e);
+        }
+      }
+    });
+
+    socket.on('receive_friend_msg', (msg) => {
+      const activeFriend = selectedFriendRef.current;
+      if (activeFriend && (msg.senderId === activeFriend.friendId || msg.receiverId === activeFriend.friendId)) {
+        setMessages(prev => [...prev, msg]);
+      } else {
+        addToast('Nova mensagem de amizade!', 'info');
+        loadFriends();
+      }
+    });
+
+    socket.on('receive_friend_msg_like', (data) => {
+      const { messageId, likedByUserId } = data;
+      setMessages(prev => prev.map(m => {
+        if (m.id === messageId) {
+          const alreadyLiked = m.likedBy.includes(likedByUserId);
+          return {
+            ...m,
+            likedBy: alreadyLiked 
+              ? m.likedBy.filter(id => id !== likedByUserId)
+              : [...m.likedBy, likedByUserId]
+          };
+        }
+        return m;
+      }));
+    });
+
+    socket.on(`incoming_call_to_${user.id}`, (data) => {
+      if (callStateRef.current === 'idle' && !inRandomChatRef.current) {
+        setIncomingCall(data);
+        setCallType(data.type);
+      } else {
+        socket.emit('reject_friend_call', { callRoomId: data.callRoomId });
+      }
+    });
+
+    socket.on('friend_call_ended', () => {
+      addToast('Chamada encerrada pelo amigo.', 'warning');
+      cleanupCall();
+    });
+
+    const queueLoad = setTimeout(loadFriends, 0);
+
+    return () => {
+      clearTimeout(queueLoad);
+      removeCallListeners();
+      if (socket) {
+        socket.disconnect();
+      }
+    };
+  }, [user, loadFriends, addToast, initWebRTC, cleanupCall, removeCallListeners]);
 
   // --- Ações de Login ---
   const handleAuth = async (e) => {
@@ -490,6 +521,9 @@ export default function Home() {
       if (data.success) {
         setUser(data.user);
         localStorage.setItem('nexchat_user', JSON.stringify(data.user));
+        if (data.token) {
+          localStorage.setItem('nexchat_token', data.token);
+        }
         addToast(`Bem-vindo, ${data.user.username}!`, 'success');
       } else {
         setAuthError(data.error || 'Falha na autenticação');
@@ -526,6 +560,7 @@ export default function Home() {
   // Ação de Logout
   const handleLogout = () => {
     localStorage.removeItem('nexchat_user');
+    localStorage.removeItem('nexchat_token');
     setUser(null);
     setSelectedFriend(null);
     setFriendsList([]);
@@ -610,12 +645,11 @@ export default function Home() {
     // 2. Mensagem para Amigo (WhatsApp)
     else if (selectedFriend) {
       try {
-        const res = await fetch('/api/messages', {
+        const res = await authedFetch('/api/messages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             action: 'send',
-            senderId: user.id,
             receiverId: selectedFriend.friendId,
             content,
             parentMessageId: payload.parentMessageId
@@ -653,13 +687,12 @@ export default function Home() {
       socket.emit('like_random_msg', { roomId: randomRoomId, messageId: msgId, likedByUserId: user.id });
     } else if (selectedFriend) {
       try {
-        const res = await fetch('/api/messages', {
+        const res = await authedFetch('/api/messages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             action: 'like',
-            messageId: msgId,
-            userId: user.id
+            messageId: msgId
           })
         });
         const data = await res.json();
@@ -690,12 +723,11 @@ export default function Home() {
   const sendFriendRequestInRandom = async () => {
     if (!randomPartner || !user) return;
     try {
-      const res = await fetch('/api/friends', {
+      const res = await authedFetch('/api/friends', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'send',
-          userId: user.id,
           friendId: randomPartner.userId
         })
       });
@@ -728,12 +760,11 @@ export default function Home() {
     if (!addFriendId.trim()) return;
 
     try {
-      const res = await fetch('/api/friends', {
+      const res = await authedFetch('/api/friends', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'send',
-          userId: user.id,
           friendCustomId: addFriendId.trim()
         })
       });
@@ -755,12 +786,11 @@ export default function Home() {
 
   const respondFriendRequest = async (friendId, accept) => {
     try {
-      const res = await fetch('/api/friends', {
+      const res = await authedFetch('/api/friends', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: accept ? 'accept' : 'reject',
-          userId: user.id,
           friendId
         })
       });
@@ -778,11 +808,10 @@ export default function Home() {
   const submitReport = async () => {
     if (!randomPartner || !user) return;
     try {
-      const res = await fetch('/api/reports', {
+      const res = await authedFetch('/api/reports', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          reporterId: user.id,
           reportedId: randomPartner.userId,
           reason: reportReason,
           details: reportDetails
@@ -802,30 +831,38 @@ export default function Home() {
 
   // --- Chamada Direta com Amigos ---
   const callFriend = async (type) => {
-    if (!selectedFriend || !user) return;
+    if (!selectedFriendRef.current || !user) return;
     
-    const callRoomId = `call_${Date.now()}`;
+    const callRoomId = `call_${Date.now()}_${user.id}`;
     setCallState('calling');
     setCallType(type);
     setActiveCallRoom(callRoomId);
-    setActiveView('chat'); // Garante que o painel de chat de chamada é exibido
+    setActiveView('chat');
 
-    socket.on(`call_accepted_for_${callRoomId}`, async () => {
+    const onAccepted = async () => {
+      removeCallListeners();
       setCallState('connected');
-      socket.join(callRoomId);
       addToast('Chamada conectada!', 'success');
-      if (useMedia) {
+      if (useMediaRef.current) {
         await initWebRTC(callRoomId, 'caller');
       }
-    });
+    };
 
-    socket.on(`call_rejected_for_${callRoomId}`, () => {
+    const onRejected = () => {
+      removeCallListeners();
       addToast('O amigo rejeitou a chamada ou está ocupado.', 'warning');
       cleanupCall();
-    });
+    };
+
+    socket.on(`call_accepted_for_${callRoomId}`, onAccepted);
+    socket.on(`call_rejected_for_${callRoomId}`, onRejected);
+    callListenersRef.current = [
+      { event: `call_accepted_for_${callRoomId}`, handler: onAccepted },
+      { event: `call_rejected_for_${callRoomId}`, handler: onRejected }
+    ];
 
     socket.emit('call_friend', {
-      friendUserId: selectedFriend.friendId,
+      friendUserId: selectedFriendRef.current.friendId,
       callerData: { id: user.id, username: user.username, avatarUrl: user.avatarUrl },
       type,
       callRoomId
@@ -864,10 +901,10 @@ export default function Home() {
   };
 
   // --- Admin Logic ---
-  const loadAdminReports = async () => {
+  const loadAdminReports = useCallback(async () => {
     if (!user || user.role === 'user') return;
     try {
-      const res = await fetch(`/api/admin?adminUserId=${user.id}`);
+      const res = await authedFetch('/api/admin');
       const data = await res.json();
       if (data.success) {
         setReports(data.reports || []);
@@ -875,23 +912,22 @@ export default function Home() {
     } catch (err) {
       console.error(err);
     }
-  };
+  }, [user]);
 
   useEffect(() => {
-    if (showAdminPanel) {
-      loadAdminReports();
-    }
-  }, [showAdminPanel]);
+    if (!showAdminPanel) return;
+    const timer = setTimeout(loadAdminReports, 0);
+    return () => clearTimeout(timer);
+  }, [showAdminPanel, loadAdminReports]);
 
   const handleAdminAction = async (targetUserId, action, durationDays = 0) => {
     setAdminStatusMsg('');
     try {
-      const res = await fetch('/api/admin', {
+      const res = await authedFetch('/api/admin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action,
-          adminUserId: user.id,
           targetUserId,
           reason: 'Violação de Termos (Moderação Admin)',
           durationDays

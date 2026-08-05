@@ -1,5 +1,6 @@
 import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
+import { getAuthUser } from '@/lib/session';
 
 // Função para validar se o usuário é administrador
 async function checkAdmin(userId) {
@@ -11,8 +12,11 @@ async function checkAdmin(userId) {
 
 export async function GET(req) {
   try {
-    const { searchParams } = new URL(req.url);
-    const adminUserId = searchParams.get('adminUserId');
+    const auth = getAuthUser(req);
+    if (!auth) {
+      return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+    }
+    const adminUserId = auth.id;
 
     const isAdmin = await checkAdmin(adminUserId);
     if (!isAdmin) {
@@ -47,8 +51,14 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
+    const auth = getAuthUser(req);
+    if (!auth) {
+      return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+    }
+    const adminUserId = auth.id;
+
     const body = await req.json();
-    const { action, adminUserId, targetUserId, reason, durationDays } = body;
+    const { action, targetUserId, reason, durationDays } = body;
 
     const isAdmin = await checkAdmin(adminUserId);
     if (!isAdmin) {
