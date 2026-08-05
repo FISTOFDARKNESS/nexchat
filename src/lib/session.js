@@ -1,7 +1,5 @@
 import crypto from 'crypto';
 
-const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
 function getSecret() {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
@@ -21,8 +19,7 @@ export function signUserToken(user) {
   const payload = {
     id: user.id,
     username: user.username,
-    role: user.role,
-    exp: Date.now() + TOKEN_TTL_MS
+    role: user.role
   };
   const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const sig = crypto.createHmac('sha256', getSecret()).update(data).digest('base64url');
@@ -38,7 +35,7 @@ export function verifyUserToken(token) {
   if (!safeEqual(sig, expected)) return null;
   try {
     const payload = JSON.parse(Buffer.from(data, 'base64url').toString('utf8'));
-    if (!payload.id || typeof payload.exp !== 'number' || payload.exp < Date.now()) return null;
+    if (!payload.id) return null;
     return payload;
   } catch {
     return null;

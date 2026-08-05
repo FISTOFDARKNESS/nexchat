@@ -6,7 +6,7 @@ import {
   Video, Phone, UserPlus, Send, Heart, Smile, Shield, Flag, X, 
   MessageSquare, LogOut, MapPin, User, Users, Check, Trash, ShieldAlert,
   Moon, CheckSquare, Settings, AlertCircle, VolumeX, Mic, MicOff, VideoOff, Play,
-  Plus, CheckCircle, Clock, Info, ChevronLeft
+  Plus, CheckCircle, Clock, Info, ChevronLeft, SkipForward
 } from 'lucide-react';
 
 let socket;
@@ -969,7 +969,7 @@ export default function Home() {
   // --- VIEW: TELA DE CONSENTIMENTO INICIAL ---
   if (!consentGranted) {
     return (
-      <div style={{ display: 'flex', height: '100vh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: '20px' }}>
+      <div style={{ display: 'flex', height: '100dvh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: '20px' }}>
         <div className="glass-card animate-slide-in" style={{ maxWidth: '500px', width: '100%', textAlign: 'center', border: '1px solid var(--line)' }}>
           <h2 style={{ color: 'var(--gold)', marginBottom: '16px' }}>Consentimento e Permissões</h2>
           <p style={{ color: 'var(--muted)', fontSize: '14px', lineHeight: '1.6', marginBottom: '24px' }}>
@@ -992,7 +992,7 @@ export default function Home() {
   // --- VIEW: TELA DE LOGIN ---
   if (!user) {
     return (
-      <div style={{ display: 'flex', height: '100vh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: '16px' }}>
+      <div style={{ display: 'flex', height: '100dvh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: '16px' }}>
         <div className="glass-card animate-slide-in" style={{ width: '100%', maxWidth: '420px', border: '1px solid var(--line)' }}>
           <div style={{ textAlign: 'center', marginBottom: '24px' }} className="animate-float">
             <h1 style={{ color: 'var(--gold)', fontSize: '32px', textShadow: '0 0 15px var(--gold-glow)' }}>NexChat</h1>
@@ -1084,7 +1084,7 @@ export default function Home() {
 
   // --- VIEW: PRINCIPAL DO APLICATIVO ---
   return (
-    <div className="app-container" style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--bg)', overflow: 'hidden', position: 'relative' }}>
+    <div className="app-container" style={{ display: 'flex', height: '100dvh', width: '100vw', background: 'var(--bg)', overflow: 'hidden', position: 'relative' }}>
       
       {/* Container de Toasts flutuantes */}
       <div className="toast-container">
@@ -1315,8 +1315,8 @@ export default function Home() {
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%' }} className="animate-fade-in">
             
             {/* Header do Chat */}
-            <div style={{ height: '64px', borderBottom: '1px solid var(--line)', padding: '0 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-2)', flexShrink: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', maxWidth: '50%' }}>
+            <div style={{ height: isMobile ? '56px' : '64px', borderBottom: '1px solid var(--line)', padding: isMobile ? '0 6px' : '0 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-2)', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '4px' : '6px', maxWidth: isMobile ? '42%' : '50%' }}>
                 {isMobile && (
                   <button 
                     onClick={() => {
@@ -1336,7 +1336,7 @@ export default function Home() {
                   </button>
                 )}
                 
-                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--gold-soft)', border: '1px solid var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: 'var(--gold)', flexShrink: 0 }}>
+                <div style={{ width: isMobile ? '30px' : '36px', height: isMobile ? '30px' : '36px', borderRadius: '50%', background: 'var(--gold-soft)', border: '1px solid var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: 'var(--gold)', flexShrink: 0 }}>
                   {inRandomChat ? '?' : selectedFriend.username[0].toUpperCase()}
                 </div>
                 <div style={{ minWidth: 0 }}>
@@ -1349,44 +1349,44 @@ export default function Home() {
                 </div>
               </div>
               
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '4px' : '6px' }}>
                 {inRandomChat ? (
                   <>
                     {/* Botão de Solicitação de Amizade */}
                     {randomFriendRequestStatus === 'none' && (
-                      <button className="btn-primary" onClick={sendFriendRequestInRandom} style={{ padding: '6px 10px', fontSize: '11px', minHeight: '36px' }}>
-                        <UserPlus size={13} /> Pedir
+                      <button className="btn-primary" onClick={sendFriendRequestInRandom} style={{ padding: isMobile ? '4px 8px' : '6px 10px', fontSize: isMobile ? '10px' : '11px', minHeight: isMobile ? '32px' : '36px' }}>
+                        <UserPlus size={isMobile ? 12 : 13} /> Pedir
                       </button>
                     )}
                     {randomFriendRequestStatus === 'sent' && (
-                      <button className="btn-secondary" disabled style={{ padding: '6px 10px', fontSize: '11px', minHeight: '36px', opacity: 0.8, color: 'var(--gold)', borderColor: 'var(--gold)' }}>
+                      <button className="btn-secondary" disabled style={{ padding: isMobile ? '4px 8px' : '6px 10px', fontSize: isMobile ? '10px' : '11px', minHeight: isMobile ? '32px' : '36px', opacity: 0.8, color: 'var(--gold)', borderColor: 'var(--gold)' }}>
                         <Clock size={12} />
                       </button>
                     )}
                     {randomFriendRequestStatus === 'received' && (
-                      <button className="btn-primary animate-pulse-glow" onClick={sendFriendRequestInRandom} style={{ padding: '6px 10px', fontSize: '11px', minHeight: '36px' }}>
+                      <button className="btn-primary animate-pulse-glow" onClick={sendFriendRequestInRandom} style={{ padding: isMobile ? '4px 8px' : '6px 10px', fontSize: isMobile ? '10px' : '11px', minHeight: isMobile ? '32px' : '36px' }}>
                         Aceitar
                       </button>
                     )}
                     {randomFriendRequestStatus === 'accepted' && (
-                      <button className="btn-secondary" disabled style={{ padding: '6px 10px', fontSize: '11px', minHeight: '36px', color: 'var(--green)', borderColor: 'var(--green)' }}>
+                      <button className="btn-secondary" disabled style={{ padding: isMobile ? '4px 8px' : '6px 10px', fontSize: isMobile ? '10px' : '11px', minHeight: isMobile ? '32px' : '36px', color: 'var(--green)', borderColor: 'var(--green)' }}>
                         Amigos
                       </button>
                     )}
 
-                    <button onClick={() => setShowReportModal(true)} title="Denunciar" style={{ color: 'var(--red)', background: 'rgba(239, 68, 68, 0.1)', padding: '8px', borderRadius: '6px', minHeight: '36px' }}>
+                    <button onClick={() => setShowReportModal(true)} title="Denunciar" style={{ color: 'var(--red)', background: 'rgba(239, 68, 68, 0.1)', padding: isMobile ? '6px' : '8px', borderRadius: '6px', minHeight: isMobile ? '32px' : '36px' }}>
                       <Flag size={14} />
                     </button>
-                    <button className="btn-primary animate-pulse-glow" onClick={skipRandomMatch} style={{ padding: '8px 12px', minHeight: '36px', fontSize: '12px' }}>
+                    <button className="btn-primary animate-pulse-glow" onClick={skipRandomMatch} style={{ padding: isMobile ? '6px 10px' : '8px 12px', minHeight: isMobile ? '32px' : '36px', fontSize: isMobile ? '11px' : '12px' }}>
                       Pular
                     </button>
                   </>
                 ) : (
                   <>
-                    <button onClick={() => callFriend('audio')} title="Áudio" style={{ color: 'var(--text)', background: 'var(--bg-3)', padding: '8px', borderRadius: '6px', border: '1px solid var(--line)', minHeight: '36px' }}>
+                    <button onClick={() => callFriend('audio')} title="Áudio" style={{ color: 'var(--text)', background: 'var(--bg-3)', padding: isMobile ? '6px' : '8px', borderRadius: '6px', border: '1px solid var(--line)', minHeight: isMobile ? '32px' : '36px' }}>
                       <Phone size={14} />
                     </button>
-                    <button onClick={() => callFriend('video')} title="Vídeo" style={{ color: 'var(--gold)', background: 'var(--gold-soft)', padding: '8px', borderRadius: '6px', border: '1px solid var(--gold)', minHeight: '36px' }}>
+                    <button onClick={() => callFriend('video')} title="Vídeo" style={{ color: 'var(--gold)', background: 'var(--gold-soft)', padding: isMobile ? '6px' : '8px', borderRadius: '6px', border: '1px solid var(--gold)', minHeight: isMobile ? '32px' : '36px' }}>
                       <Video size={14} />
                     </button>
                   </>
@@ -1542,7 +1542,7 @@ export default function Home() {
             </div>
 
             {/* Input Bar */}
-            <form onSubmit={handleSendMessage} style={{ padding: '12px', background: 'var(--bg-2)', borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0 }}>
+            <form onSubmit={handleSendMessage} style={{ padding: isMobile ? '8px' : '12px', background: 'var(--bg-2)', borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0 }}>
               {replyingTo && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-3)', borderLeft: '3px solid var(--gold)', padding: '6px 12px', borderRadius: '4px' }}>
                   <div style={{ fontSize: '11px', minWidth: 0 }}>
@@ -1553,17 +1553,22 @@ export default function Home() {
                 </div>
               )}
 
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '6px' }}>
                 <input 
                   type="text" 
                   placeholder="Escreva..." 
                   value={messageText}
                   onChange={e => setMessageText(e.target.value)}
-                  style={{ flex: 1, padding: '10px 12px', minHeight: '40px', fontSize: '13px' }}
+                  style={{ flex: 1, padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px', fontSize: '14px' }}
                 />
-                <button type="submit" className="btn-primary" style={{ padding: '10px 14px', minHeight: '40px' }}>
+                <button type="submit" className="btn-primary" style={{ padding: isMobile ? '8px 12px' : '10px 14px', minHeight: isMobile ? '36px' : '40px' }}>
                   <Send size={14} />
                 </button>
+                {inRandomChat && matchMode === 'text' && (
+                  <button type="button" className="btn-primary animate-pulse-glow" onClick={skipRandomMatch} title="Pular pessoa" style={{ padding: isMobile ? '8px 12px' : '10px 14px', minHeight: isMobile ? '36px' : '40px' }}>
+                    <SkipForward size={14} />
+                  </button>
+                )}
               </div>
             </form>
 

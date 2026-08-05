@@ -5,6 +5,13 @@ export const metadata = {
   description: "Conecte-se com amigos e faça chamadas de vídeo aleatórias instantaneamente.",
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover",
+};
+
 export default function RootLayout({ children }) {
   return (
     <html lang="pt-BR">

@@ -159,6 +159,7 @@ input:focus, select:focus, textarea:focus {
 .app-container {
   display: flex;
   height: 100vh;
+  height: 100dvh;
   width: 100vw;
   background: var(--bg);
   overflow: hidden;
