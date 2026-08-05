@@ -6,7 +6,7 @@ import {
   Video, Phone, UserPlus, Send, Heart, Smile, Shield, Flag, X, 
   MessageSquare, LogOut, MapPin, User, Users, Check, Trash, ShieldAlert,
   Moon, CheckSquare, Settings, AlertCircle, VolumeX, Mic, MicOff, VideoOff, Play,
-  Plus, CheckCircle, Clock, Info
+  Plus, CheckCircle, Clock, Info, ChevronLeft
 } from 'lucide-react';
 
 let socket;
@@ -18,7 +18,9 @@ export default function Home() {
   const [user, setUser] = useState(null); // Usuário logado
   const [loading, setLoading] = useState(false);
   const [authError, setAuthError] = useState('');
-  
+  const [isMobile, setIsMobile] = useState(false);
+  const [activeView, setActiveView] = useState('sidebar'); // 'sidebar', 'chat'
+
   // Inputs de Login
   const [loginUsername, setLoginUsername] = useState('');
   const [loginEmail, setLoginEmail] = useState('');
@@ -36,6 +38,50 @@ export default function Home() {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, 4500);
   };
+
+  // --- Efeito: Detectar se é Mobile e Redimensionar ---
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // --- Efeito: Carregar Sessão Local ou Parâmetros da URL ---
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    const userDataParam = query.get('user_data');
+    const authErrorParam = query.get('auth_error');
+
+    if (userDataParam) {
+      try {
+        const parsedUser = JSON.parse(decodeURIComponent(userDataParam));
+        setUser(parsedUser);
+        localStorage.setItem('nexchat_user', JSON.stringify(parsedUser));
+        addToast(`Conectado com sucesso! Bem-vindo, ${parsedUser.username}!`, 'success');
+      } catch (err) {
+        console.error('Erro ao ler dados da URL:', err);
+      }
+      // Limpa os parâmetros da URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (authErrorParam) {
+      addToast(decodeURIComponent(authErrorParam), 'error');
+      setAuthError(decodeURIComponent(authErrorParam));
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else {
+      // Se não vier na URL, busca no localStorage
+      const savedUser = localStorage.getItem('nexchat_user');
+      if (savedUser) {
+        try {
+          setUser(JSON.parse(savedUser));
+        } catch (e) {
+          localStorage.removeItem('nexchat_user');
+        }
+      }
+    }
+  }, []);
 
   // --- Estados do Chat e Amizade ---
   const [friendsList, setFriendsList] = useState([]);
@@ -111,14 +157,16 @@ export default function Home() {
   useEffect(() => {
     if (localVideoRef.current && localStreamRef.current) {
       localVideoRef.current.srcObject = localStreamRef.current;
+      localVideoRef.current.play().catch(e => console.log('Autoplay local stream error:', e));
     }
-  }, [inRandomChat, callState, matchMode, useMedia, activeCallRoom]);
+  }, [inRandomChat, callState, matchMode, useMedia, activeCallRoom, activeView]);
 
   useEffect(() => {
     if (remoteVideoRef.current && remoteStreamRef.current) {
       remoteVideoRef.current.srcObject = remoteStreamRef.current;
+      remoteVideoRef.current.play().catch(e => console.log('Autoplay remote stream error:', e));
     }
-  }, [inRandomChat, callState, matchMode, useMedia, activeCallRoom]);
+  }, [inRandomChat, callState, matchMode, useMedia, activeCallRoom, activeView]);
 
   // --- Efeito: Inicializar Socket se Usuário Logar ---
   useEffect(() => {
@@ -146,6 +194,7 @@ export default function Home() {
       setRandomFriendRequestStatus('none');
       setMessages([]);
       setReplyingTo(null);
+      setActiveView('chat'); // Muda a visualização no mobile automaticamente
       addToast(`Conectado com um parceiro de ${partner.country}!`, 'success');
 
       if (matchMode === 'video' && useMedia) {
@@ -195,19 +244,32 @@ export default function Home() {
       loadFriends();
     });
 
-    // 2. Ouvintes de WebRTC (Sinalização)
+    // 2. Ouvintes de WebRTC (Sinalização com tratamento de Race Condition)
     socket.on('webrtc_offer', async (data) => {
+      const rId = randomRoomId || activeCallRoom;
+      if (!peerConnectionRef.current && rId) {
+        // Inicializa o PC imediatamente para responder a oferta
+        await initWebRTC(rId, 'receiver');
+      }
       if (peerConnectionRef.current) {
-        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.offer));
-        const answer = await peerConnectionRef.current.createAnswer();
-        await peerConnectionRef.current.setLocalDescription(answer);
-        socket.emit('webrtc_answer', { roomId: randomRoomId || activeCallRoom, answer });
+        try {
+          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.offer));
+          const answer = await peerConnectionRef.current.createAnswer();
+          await peerConnectionRef.current.setLocalDescription(answer);
+          socket.emit('webrtc_answer', { roomId: rId, answer });
+        } catch (err) {
+          console.error('Erro ao processar webrtc_offer:', err);
+        }
       }
     });
 
     socket.on('webrtc_answer', async (data) => {
       if (peerConnectionRef.current) {
-        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+        try {
+          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+        } catch (err) {
+          console.error('Erro ao processar webrtc_answer:', err);
+        }
       }
     });
 
@@ -227,7 +289,7 @@ export default function Home() {
       if (selectedFriend && (msg.senderId === selectedFriend.friendId || msg.receiverId === selectedFriend.friendId)) {
         setMessages(prev => [...prev, msg]);
       } else {
-        addToast(`Nova mensagem de amizade de outra conversa!`, 'info');
+        addToast(`Nova mensagem de amizade!`, 'info');
         loadFriends();
       }
     });
@@ -275,7 +337,7 @@ export default function Home() {
         socket.disconnect();
       }
     };
-  }, [user]);
+  }, [user, randomRoomId, activeCallRoom]);
 
   // Carregar dados de amigos via API
   const loadFriends = async () => {
@@ -298,6 +360,7 @@ export default function Home() {
     if (!selectedFriend || !user) return;
     setInRandomChat(false);
     setInQueue(false);
+    setActiveView('chat'); // Muda a visualização no mobile automaticamente
     
     // Join room do Socket para chat com este amigo
     const sortedIds = [user.id, selectedFriend.friendId].sort();
@@ -336,6 +399,7 @@ export default function Home() {
         setUseMedia(true);
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
+          localVideoRef.current.play().catch(e => console.log(e));
         }
       } catch (err) {
         console.warn('Permissão de mídia recusada ou indisponível:', err.message);
@@ -366,6 +430,7 @@ export default function Home() {
           remoteStreamRef.current = event.streams[0];
           if (remoteVideoRef.current) {
             remoteVideoRef.current.srcObject = event.streams[0];
+            remoteVideoRef.current.play().catch(e => console.log('Autoplay remote stream error:', e));
           }
         }
       };
@@ -424,6 +489,7 @@ export default function Home() {
       
       if (data.success) {
         setUser(data.user);
+        localStorage.setItem('nexchat_user', JSON.stringify(data.user));
         addToast(`Bem-vindo, ${data.user.username}!`, 'success');
       } else {
         setAuthError(data.error || 'Falha na autenticação');
@@ -435,6 +501,41 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Redirecionamento OAuth2 do Google
+  const handleGoogleAuthRedirect = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch('/api/auth/google/url');
+      const data = await res.json();
+      
+      if (data.success && data.url) {
+        // Redireciona o navegador para a tela de Consentimento do Google
+        window.location.href = data.url;
+      } else {
+        addToast(data.error || 'Erro ao gerar URL do Google', 'error');
+      }
+    } catch (err) {
+      addToast('Erro ao contatar servidor de autenticação Google', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Ação de Logout
+  const handleLogout = () => {
+    localStorage.removeItem('nexchat_user');
+    setUser(null);
+    setSelectedFriend(null);
+    setFriendsList([]);
+    setPendingReceived([]);
+    setPendingSent([]);
+    cleanupCall();
+    if (socket) {
+      socket.disconnect();
+    }
+    addToast('Sessão encerrada com sucesso.', 'info');
   };
 
   // --- Ações de Matchmaking ---
@@ -453,6 +554,7 @@ export default function Home() {
       prefCountry: matchCountry,
       mode: matchMode
     });
+    setActiveView('chat'); // Muda a visualização no mobile para ver a fila
   };
 
   const cancelRandomMatch = () => {
@@ -473,7 +575,6 @@ export default function Home() {
     setRandomPartner(null);
     setRandomFriendRequestStatus('none');
     
-    // Auto-iniciar a próxima busca
     setTimeout(() => {
       startRandomMatch();
     }, 200);
@@ -508,7 +609,6 @@ export default function Home() {
     }
     // 2. Mensagem para Amigo (WhatsApp)
     else if (selectedFriend) {
-      // Salva no banco de dados para persistência
       try {
         const res = await fetch('/api/messages', {
           method: 'POST',
@@ -526,7 +626,6 @@ export default function Home() {
           const savedMsg = data.message;
           setMessages(prev => [...prev, savedMsg]);
           
-          // Envia em tempo real via socket
           const sortedIds = [user.id, selectedFriend.friendId].sort();
           const chatRoomId = `friend_chat_${sortedIds[0]}_${sortedIds[1]}`;
           socket.emit('send_friend_msg', { roomId: chatRoomId, message: savedMsg });
@@ -540,7 +639,6 @@ export default function Home() {
   const handleLikeMessage = async (msgId) => {
     if (!user) return;
 
-    // 1. Curtida em Chat Aleatório
     if (inRandomChat && randomRoomId) {
       setMessages(prev => prev.map(m => {
         if (m.id === msgId) {
@@ -553,9 +651,7 @@ export default function Home() {
         return m;
       }));
       socket.emit('like_random_msg', { roomId: randomRoomId, messageId: msgId, likedByUserId: user.id });
-    }
-    // 2. Curtida em Chat de Amigos
-    else if (selectedFriend) {
+    } else if (selectedFriend) {
       try {
         const res = await fetch('/api/messages', {
           method: 'POST',
@@ -611,7 +707,7 @@ export default function Home() {
           socket.emit('accept_random_friend_request', { roomId: randomRoomId, senderId: user.id });
         } else {
           setRandomFriendRequestStatus('sent');
-          addToast('Solicitação de amizade enviada com sucesso!', 'success');
+          addToast('Solicitação de amizade enviada!', 'success');
           socket.emit('send_random_friend_request', { roomId: randomRoomId, senderId: user.id });
         }
         loadFriends();
@@ -694,10 +790,10 @@ export default function Home() {
       });
       const data = await res.json();
       if (data.success) {
-        addToast('Usuário denunciado com sucesso. Os moderadores analisarão os registros.', 'success');
+        addToast('Usuário denunciado com sucesso.', 'success');
         setShowReportModal(false);
         setReportDetails('');
-        skipRandomMatch(); // Pula automaticamente para a próxima pessoa
+        skipRandomMatch();
       }
     } catch (err) {
       console.error(err);
@@ -712,8 +808,8 @@ export default function Home() {
     setCallState('calling');
     setCallType(type);
     setActiveCallRoom(callRoomId);
+    setActiveView('chat'); // Garante que o painel de chat de chamada é exibido
 
-    // Escuta aceite do amigo
     socket.on(`call_accepted_for_${callRoomId}`, async () => {
       setCallState('connected');
       socket.join(callRoomId);
@@ -743,6 +839,7 @@ export default function Home() {
     setCallState('connected');
     setActiveCallRoom(callRoomId);
     setIncomingCall(null);
+    setActiveView('chat');
 
     socket.emit('accept_friend_call', { callRoomId });
     if (useMedia) {
@@ -844,10 +941,10 @@ export default function Home() {
             Você deseja ativar sua câmera e microfone agora para fazer videochamadas com aleatórios?
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <button className="btn-primary animate-pulse-glow" onClick={() => requestMediaPermissions(true)} style={{ justifyContent: 'center' }}>
+            <button className="btn-primary animate-pulse-glow" onClick={() => requestMediaPermissions(true)} style={{ justifyContent: 'center', minHeight: '48px' }}>
               <Video className="icon" /> Aceitar Cookies e Ativar Câmera + Microfone
             </button>
-            <button className="btn-secondary" onClick={() => requestMediaPermissions(false)}>
+            <button className="btn-secondary" onClick={() => requestMediaPermissions(false)} style={{ minHeight: '48px' }}>
               Apenas Modo Texto (Sem Câmera/Microfone)
             </button>
           </div>
@@ -859,60 +956,69 @@ export default function Home() {
   // --- VIEW: TELA DE LOGIN ---
   if (!user) {
     return (
-      <div style={{ display: 'flex', height: '100vh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
-        <div className="glass-card animate-slide-in" style={{ width: '420px', border: '1px solid var(--line)' }}>
+      <div style={{ display: 'flex', height: '100vh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: '16px' }}>
+        <div className="glass-card animate-slide-in" style={{ width: '100%', maxWidth: '420px', border: '1px solid var(--line)' }}>
           <div style={{ textAlign: 'center', marginBottom: '24px' }} className="animate-float">
             <h1 style={{ color: 'var(--gold)', fontSize: '32px', textShadow: '0 0 15px var(--gold-glow)' }}>NexChat</h1>
             <p style={{ color: 'var(--muted)', fontSize: '13px', marginTop: '4px' }}>A sua plataforma de conexões imediatas</p>
           </div>
 
           <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>Nome de Usuário / Apelido</label>
-              <input 
-                type="text" 
-                placeholder="Ex: Gabriel" 
-                value={loginUsername}
-                onChange={e => setLoginUsername(e.target.value)}
-                required
-                style={{ width: '100%' }}
-              />
-            </div>
+            {loginMode === 'guest' ? (
+              <>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>Nome de Usuário / Apelido</label>
+                  <input 
+                    type="text" 
+                    placeholder="Ex: Gabriel" 
+                    value={loginUsername}
+                    onChange={e => setLoginUsername(e.target.value)}
+                    required
+                    style={{ width: '100%', minHeight: '44px' }}
+                  />
+                </div>
 
-            {loginMode === 'google' && (
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>Endereço de E-mail</label>
-                <input 
-                  type="email" 
-                  placeholder="Ex: gabriel@gmail.com" 
-                  value={loginEmail}
-                  onChange={e => setLoginEmail(e.target.value)}
-                  required
-                  style={{ width: '100%' }}
-                />
-              </div>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>Gênero</label>
+                    <select value={loginGender} onChange={e => setLoginGender(e.target.value)} style={{ width: '100%', minHeight: '44px' }}>
+                      <option value="male">Masculino</option>
+                      <option value="female">Feminino</option>
+                      <option value="other">Outro</option>
+                    </select>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>País</label>
+                    <select value={loginCountry} onChange={e => setLoginCountry(e.target.value)} style={{ width: '100%', minHeight: '44px' }}>
+                      <option value="BR">Brasil</option>
+                      <option value="US">Estados Unidos</option>
+                      <option value="PT">Portugal</option>
+                      <option value="AR">Argentina</option>
+                      <option value="ES">Espanha</option>
+                    </select>
+                  </div>
+                </div>
+
+                <button type="submit" disabled={loading} className="btn-primary animate-pulse-glow" style={{ width: '100%', justifyContent: 'center', marginTop: '8px', minHeight: '48px' }}>
+                  {loading ? 'Entrando...' : 'Entrar como Visitante'}
+                </button>
+              </>
+            ) : (
+              <>
+                <p style={{ color: 'var(--muted)', fontSize: '13px', textAlign: 'center', marginBottom: '8px' }}>
+                  Você será redirecionado para a tela de autenticação segura do Google OAuth2.
+                </p>
+                <button 
+                  type="button" 
+                  onClick={handleGoogleAuthRedirect} 
+                  disabled={loading} 
+                  className="btn-primary animate-pulse-glow" 
+                  style={{ width: '100%', justifyContent: 'center', minHeight: '48px' }}
+                >
+                  {loading ? 'Redirecionando...' : 'Iniciar Login com Google'}
+                </button>
+              </>
             )}
-
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>Gênero</label>
-                <select value={loginGender} onChange={e => setLoginGender(e.target.value)} style={{ width: '100%' }}>
-                  <option value="male">Masculino</option>
-                  <option value="female">Feminino</option>
-                  <option value="other">Outro</option>
-                </select>
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>País</label>
-                <select value={loginCountry} onChange={e => setLoginCountry(e.target.value)} style={{ width: '100%' }}>
-                  <option value="BR">Brasil</option>
-                  <option value="US">Estados Unidos</option>
-                  <option value="PT">Portugal</option>
-                  <option value="AR">Argentina</option>
-                  <option value="ES">Espanha</option>
-                </select>
-              </div>
-            </div>
 
             {authError && (
               <p style={{ color: 'var(--red)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -920,24 +1026,20 @@ export default function Home() {
               </p>
             )}
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginTop: '4px' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', fontSize: '13px', marginTop: '12px', borderTop: '1px solid var(--line)', paddingTop: '12px' }}>
               <span 
                 onClick={() => setLoginMode('guest')} 
-                style={{ color: loginMode === 'guest' ? 'var(--gold)' : 'var(--muted)', cursor: 'pointer', fontWeight: loginMode === 'guest' ? '600' : '400' }}
+                style={{ color: loginMode === 'guest' ? 'var(--gold)' : 'var(--muted)', cursor: 'pointer', fontWeight: loginMode === 'guest' ? '600' : '400', padding: '6px' }}
               >
-                Modo Visitante (Sem Login)
+                Entrar como Convidado
               </span>
               <span 
                 onClick={() => setLoginMode('google')} 
-                style={{ color: loginMode === 'google' ? 'var(--gold)' : 'var(--muted)', cursor: 'pointer', fontWeight: loginMode === 'google' ? '600' : '400' }}
+                style={{ color: loginMode === 'google' ? 'var(--gold)' : 'var(--muted)', cursor: 'pointer', fontWeight: loginMode === 'google' ? '600' : '400', padding: '6px' }}
               >
-                Conectar com Google API
+                Entrar com Google API
               </span>
             </div>
-
-            <button type="submit" disabled={loading} className="btn-primary animate-pulse-glow" style={{ width: '100%', justifyContent: 'center', marginTop: '8px' }}>
-              {loading ? 'Entrando...' : loginMode === 'guest' ? 'Entrar como Visitante' : 'Conectar com Google'}
-            </button>
           </form>
         </div>
       </div>
@@ -946,7 +1048,7 @@ export default function Home() {
 
   // --- VIEW: PRINCIPAL DO APLICATIVO ---
   return (
-    <div className="app-container" style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--bg)', overflow: 'hidden' }}>
+    <div className="app-container" style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--bg)', overflow: 'hidden', position: 'relative' }}>
       
       {/* Container de Toasts flutuantes */}
       <div className="toast-container">
@@ -958,8 +1060,19 @@ export default function Home() {
         ))}
       </div>
 
-      {/* 1. SIDEBAR (Estilo Discord) */}
-      <aside style={{ width: '300px', background: 'var(--bg-2)', borderRight: '1px solid var(--line)', display: 'flex', flexDirection: 'column', flexShrink: 0 }} className="animate-slide-in-left">
+      {/* 1. SIDEBAR (Estilo Discord) - Ocultada no mobile se estiver no chat */}
+      <aside 
+        style={{ 
+          width: isMobile ? '100%' : '300px', 
+          display: isMobile && activeView !== 'sidebar' ? 'none' : 'flex',
+          background: 'var(--bg-2)', 
+          borderRight: '1px solid var(--line)', 
+          flexDirection: 'column', 
+          flexShrink: 0,
+          height: '100%'
+        }} 
+        className="animate-slide-in-left"
+      >
         {/* Perfil e Logout */}
         <div style={{ padding: '16px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
@@ -968,11 +1081,14 @@ export default function Home() {
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             {(user.role === 'admin' || user.role === 'moderator') && (
-              <button onClick={() => setShowAdminPanel(!showAdminPanel)} title="Painel Moderador" style={{ color: 'var(--gold)' }}>
+              <button onClick={() => {
+                setShowAdminPanel(!showAdminPanel);
+                if (isMobile) setActiveView('chat');
+              }} title="Painel Moderador" style={{ color: 'var(--gold)', padding: '8px' }}>
                 <Shield size={18} />
               </button>
             )}
-            <button onClick={() => setUser(null)} title="Sair" style={{ color: 'var(--muted)' }}>
+            <button onClick={handleLogout} title="Sair" style={{ color: 'var(--muted)', padding: '8px' }}>
               <LogOut size={18} />
             </button>
           </div>
@@ -985,8 +1101,9 @@ export default function Home() {
             onClick={() => {
               setSelectedFriend(null);
               setShowAdminPanel(false);
+              if (isMobile) setActiveView('chat');
             }} 
-            style={{ width: '100%', justifyContent: 'center', background: 'var(--gold-soft)', border: '1px solid var(--gold)', color: 'var(--gold)' }}
+            style={{ width: '100%', justifyContent: 'center', background: 'var(--gold-soft)', border: '1px solid var(--gold)', color: 'var(--gold)', minHeight: '44px' }}
           >
             <Video size={18} /> Chat Aleatório (Omegle)
           </button>
@@ -1001,9 +1118,9 @@ export default function Home() {
               placeholder="Ex: gabriel#4829" 
               value={addFriendId}
               onChange={e => setAddFriendId(e.target.value)}
-              style={{ fontSize: '12px', padding: '6px 10px', flex: 1 }}
+              style={{ fontSize: '13px', padding: '8px 12px', flex: 1, minHeight: '38px' }}
             />
-            <button type="submit" className="btn-primary" style={{ padding: '6px 12px' }}>
+            <button type="submit" className="btn-primary" style={{ padding: '8px 12px', minHeight: '38px' }}>
               <UserPlus size={16} />
             </button>
           </div>
@@ -1022,10 +1139,10 @@ export default function Home() {
                 <div key={req.friendId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '13px' }} className="animate-slide-in">
                   <span>{req.username}</span>
                   <div style={{ display: 'flex', gap: '4px' }}>
-                    <button onClick={() => respondFriendRequest(req.friendId, true)} style={{ color: 'var(--green)', padding: '2px' }}>
+                    <button onClick={() => respondFriendRequest(req.friendId, true)} style={{ color: 'var(--green)', padding: '6px' }}>
                       <Check size={16} />
                     </button>
-                    <button onClick={() => respondFriendRequest(req.friendId, false)} style={{ color: 'var(--red)', padding: '2px' }}>
+                    <button onClick={() => respondFriendRequest(req.friendId, false)} style={{ color: 'var(--red)', padding: '6px' }}>
                       <X size={16} />
                     </button>
                   </div>
@@ -1055,17 +1172,17 @@ export default function Home() {
                   display: 'flex', 
                   alignItems: 'center', 
                   gap: '10px', 
-                  padding: '10px 16px', 
+                  padding: '12px 16px', 
                   cursor: 'pointer',
                   background: selectedFriend?.friendId === f.friendId ? 'rgba(234, 200, 71, 0.08)' : 'transparent',
-                  borderLeft: selectedFriend?.friendId === f.friendId ? '3px solid var(--gold)' : '3px solid transparent'
+                  borderLeft: selectedFriend?.friendId === f.friendId ? '3px solid var(--gold)' : '3px solid transparent',
+                  minHeight: '52px'
                 }}
               >
                 <div style={{ position: 'relative' }}>
-                  <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--bg-3)', border: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: 'bold' }}>
+                  <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--bg-3)', border: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: 'bold' }}>
                     {f.username[0].toUpperCase()}
                   </div>
-                  {/* Status indicator */}
                   <div style={{ position: 'absolute', bottom: 0, right: 0, width: '10px', height: '10px', borderRadius: '50%', background: 'var(--green)', border: '2px solid var(--bg-2)' }}></div>
                 </div>
                 <div>
@@ -1078,15 +1195,35 @@ export default function Home() {
         </div>
       </aside>
 
-      {/* 2. CHAT / ÁREA CENTRAL */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg)', position: 'relative' }}>
+      {/* 2. CHAT / ÁREA CENTRAL - Ocultada no mobile se estiver na sidebar */}
+      <main 
+        style={{ 
+          flex: 1, 
+          display: isMobile && activeView !== 'chat' ? 'none' : 'flex', 
+          flexDirection: 'column', 
+          background: 'var(--bg)', 
+          position: 'relative',
+          height: '100%',
+          width: isMobile ? '100%' : 'auto'
+        }}
+      >
         
         {/* Painel Administrativo */}
         {showAdminPanel ? (
-          <div style={{ flex: 1, padding: '24px', overflowY: 'auto' }} className="animate-fade-in">
+          <div style={{ flex: 1, padding: '16px', overflowY: 'auto' }} className="animate-fade-in">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ color: 'var(--gold)' }}>Painel de Moderação / Admin</h2>
-              <button onClick={() => setShowAdminPanel(false)} style={{ color: 'var(--muted)' }}><X /></button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {isMobile && (
+                  <button onClick={() => setActiveView('sidebar')} style={{ color: 'var(--muted)', padding: '6px' }}>
+                    <ChevronLeft size={20} />
+                  </button>
+                )}
+                <h2 style={{ color: 'var(--gold)', fontSize: '20px' }}>Painel Administrativo</h2>
+              </div>
+              <button onClick={() => {
+                setShowAdminPanel(false);
+                if (isMobile) setActiveView('sidebar');
+              }} style={{ color: 'var(--muted)', padding: '6px' }}><X /></button>
             </div>
             
             {adminStatusMsg && (
@@ -1102,9 +1239,9 @@ export default function Home() {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   {reports.map(rep => (
-                    <div key={rep.id} style={{ padding: '16px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px' }} className="animate-slide-in">
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--muted)', marginBottom: '8px' }}>
-                        <span>Denunciante: {rep.reporterName} ({rep.reporterCustomId})</span>
+                    <div key={rep.id} style={{ padding: '12px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px' }} className="animate-slide-in">
+                      <div style={{ display: 'flex', flexDirection: 'column', fontSize: '11px', color: 'var(--muted)', marginBottom: '8px', gap: '2px' }}>
+                        <span>Denunciante: {rep.reporterName}</span>
                         <span>Data: {new Date(rep.createdAt).toLocaleString()}</span>
                       </div>
                       <div style={{ fontSize: '14px', marginBottom: '8px' }}>
@@ -1112,20 +1249,20 @@ export default function Home() {
                       </div>
                       <p style={{ fontSize: '13px', background: 'var(--bg-2)', padding: '10px', borderRadius: '6px', marginBottom: '12px' }}>
                         <strong>Motivo: </strong> {rep.reason} <br/>
-                        <strong>Detalhes: </strong> {rep.details || 'Sem detalhes fornecidos.'}
+                        <strong>Detalhes: </strong> {rep.details || 'Sem detalhes.'}
                       </p>
                       
-                      <div style={{ display: 'flex', gap: '8px' }}>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                         {rep.isCurrentlyBanned ? (
-                          <button onClick={() => handleAdminAction(rep.reportedId, 'unban')} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}>
+                          <button onClick={() => handleAdminAction(rep.reportedId, 'unban')} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', minHeight: '34px' }}>
                             Desbanir
                           </button>
                         ) : (
                           <>
-                            <button onClick={() => handleAdminAction(rep.reportedId, 'ban', 1)} className="btn-primary" style={{ background: 'var(--red)', color: '#fff', padding: '6px 12px', fontSize: '12px' }}>
+                            <button onClick={() => handleAdminAction(rep.reportedId, 'ban', 1)} className="btn-primary" style={{ background: 'var(--red)', color: '#fff', padding: '6px 12px', fontSize: '12px', minHeight: '34px' }}>
                               Banir 1 Dia
                             </button>
-                            <button onClick={() => handleAdminAction(rep.reportedId, 'ban', 0)} className="btn-primary" style={{ background: 'var(--red)', color: '#fff', padding: '6px 12px', fontSize: '12px' }}>
+                            <button onClick={() => handleAdminAction(rep.reportedId, 'ban', 0)} className="btn-primary" style={{ background: 'var(--red)', color: '#fff', padding: '6px 12px', fontSize: '12px', minHeight: '34px' }}>
                               Banir Permanente
                             </button>
                           </>
@@ -1142,87 +1279,142 @@ export default function Home() {
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%' }} className="animate-fade-in">
             
             {/* Header do Chat */}
-            <div style={{ height: '64px', borderBottom: '1px solid var(--line)', padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-2)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--gold-soft)', border: '1px solid var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: 'var(--gold)' }}>
+            <div style={{ height: '64px', borderBottom: '1px solid var(--line)', padding: '0 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-2)', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', maxWidth: '50%' }}>
+                {isMobile && (
+                  <button 
+                    onClick={() => {
+                      if (inRandomChat) {
+                        if (confirm('Deseja sair do chat aleatório?')) {
+                          skipRandomMatch();
+                          setActiveView('sidebar');
+                        }
+                      } else {
+                        setSelectedFriend(null);
+                        setActiveView('sidebar');
+                      }
+                    }} 
+                    style={{ color: 'var(--muted)', padding: '8px', marginRight: '-4px' }}
+                  >
+                    <ChevronLeft size={20} />
+                  </button>
+                )}
+                
+                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--gold-soft)', border: '1px solid var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: 'var(--gold)', flexShrink: 0 }}>
                   {inRandomChat ? '?' : selectedFriend.username[0].toUpperCase()}
                 </div>
-                <div>
-                  <h4 style={{ fontSize: '15px' }}>{inRandomChat ? `Parceiro (${randomPartner?.country})` : selectedFriend.username}</h4>
-                  <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                <div style={{ minWidth: 0 }}>
+                  <h4 style={{ fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {inRandomChat ? `Parceiro (${randomPartner?.country})` : selectedFriend.username}
+                  </h4>
+                  <span style={{ fontSize: '10px', color: 'var(--muted)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {inRandomChat ? `Filtro: ${randomPartner?.gender === 'male' ? 'Homem' : 'Mulher'}` : selectedFriend.customId}
                   </span>
                 </div>
               </div>
               
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 {inRandomChat ? (
                   <>
-                    {/* Botão Dinâmico de Solicitação de Amizade */}
+                    {/* Botão de Solicitação de Amizade */}
                     {randomFriendRequestStatus === 'none' && (
-                      <button className="btn-primary" onClick={sendFriendRequestInRandom} style={{ padding: '6px 12px', fontSize: '12px' }}>
-                        <UserPlus size={14} /> Pedir Amizade
+                      <button className="btn-primary" onClick={sendFriendRequestInRandom} style={{ padding: '6px 10px', fontSize: '11px', minHeight: '36px' }}>
+                        <UserPlus size={13} /> Pedir
                       </button>
                     )}
                     {randomFriendRequestStatus === 'sent' && (
-                      <button className="btn-secondary" disabled style={{ padding: '6px 12px', fontSize: '12px', opacity: 0.8, color: 'var(--gold)', borderColor: 'var(--gold)' }}>
-                        <Clock size={14} style={{ marginRight: '4px' }} /> Pendente
+                      <button className="btn-secondary" disabled style={{ padding: '6px 10px', fontSize: '11px', minHeight: '36px', opacity: 0.8, color: 'var(--gold)', borderColor: 'var(--gold)' }}>
+                        <Clock size={12} />
                       </button>
                     )}
                     {randomFriendRequestStatus === 'received' && (
-                      <button className="btn-primary animate-pulse-glow" onClick={sendFriendRequestInRandom} style={{ padding: '6px 12px', fontSize: '12px' }}>
-                        <CheckCircle size={14} style={{ marginRight: '4px' }} /> Aceitar Amizade
+                      <button className="btn-primary animate-pulse-glow" onClick={sendFriendRequestInRandom} style={{ padding: '6px 10px', fontSize: '11px', minHeight: '36px' }}>
+                        Aceitar
                       </button>
                     )}
                     {randomFriendRequestStatus === 'accepted' && (
-                      <button className="btn-secondary" disabled style={{ padding: '6px 12px', fontSize: '12px', color: 'var(--green)', borderColor: 'var(--green)' }}>
-                        <CheckCircle size={14} style={{ marginRight: '4px' }} /> Amigos ✅
+                      <button className="btn-secondary" disabled style={{ padding: '6px 10px', fontSize: '11px', minHeight: '36px', color: 'var(--green)', borderColor: 'var(--green)' }}>
+                        Amigos
                       </button>
                     )}
 
-                    <button onClick={() => setShowReportModal(true)} title="Denunciar Usuário" style={{ color: 'var(--red)', background: 'rgba(239, 68, 68, 0.1)', padding: '8px', borderRadius: '6px' }}>
-                      <Flag size={16} />
+                    <button onClick={() => setShowReportModal(true)} title="Denunciar" style={{ color: 'var(--red)', background: 'rgba(239, 68, 68, 0.1)', padding: '8px', borderRadius: '6px', minHeight: '36px' }}>
+                      <Flag size={14} />
                     </button>
-                    <button className="btn-primary animate-pulse-glow" onClick={skipRandomMatch} style={{ padding: '8px 16px' }}>
-                      Próximo Match <Play size={14} />
+                    <button className="btn-primary animate-pulse-glow" onClick={skipRandomMatch} style={{ padding: '8px 12px', minHeight: '36px', fontSize: '12px' }}>
+                      Pular
                     </button>
                   </>
                 ) : (
                   <>
-                    {/* Botões de chamada para amigos */}
-                    <button onClick={() => callFriend('audio')} title="Chamada de Áudio" style={{ color: 'var(--text)', background: 'var(--bg-3)', padding: '8px', borderRadius: '6px', border: '1px solid var(--line)' }}>
-                      <Phone size={16} />
+                    <button onClick={() => callFriend('audio')} title="Áudio" style={{ color: 'var(--text)', background: 'var(--bg-3)', padding: '8px', borderRadius: '6px', border: '1px solid var(--line)', minHeight: '36px' }}>
+                      <Phone size={14} />
                     </button>
-                    <button onClick={() => callFriend('video')} title="Chamada de Vídeo" style={{ color: 'var(--gold)', background: 'var(--gold-soft)', padding: '8px', borderRadius: '6px', border: '1px solid var(--gold)' }}>
-                      <Video size={16} />
+                    <button onClick={() => callFriend('video')} title="Vídeo" style={{ color: 'var(--gold)', background: 'var(--gold-soft)', padding: '8px', borderRadius: '6px', border: '1px solid var(--gold)', minHeight: '36px' }}>
+                      <Video size={14} />
                     </button>
                   </>
                 )}
               </div>
             </div>
 
-            {/* Video Box (WebRTC P2P) */}
+            {/* Video Box (WebRTC P2P com layout responsivo mobile corrigido) */}
             {((inRandomChat && matchMode === 'video') || callState === 'connected') && (
-              <div style={{ height: '260px', background: '#000', display: 'flex', position: 'relative', borderBottom: '1px solid var(--line)' }}>
-                {/* Remoto */}
-                <video ref={remoteVideoRef} autoPlay playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <div 
+                style={{ 
+                  height: isMobile ? '180px' : '280px', 
+                  background: '#000', 
+                  display: 'flex', 
+                  position: 'relative', 
+                  borderBottom: '1px solid var(--line)',
+                  flexShrink: 0
+                }}
+              >
+                {/* Remoto (Fundo principal) */}
+                <video 
+                  ref={remoteVideoRef} 
+                  autoPlay 
+                  playsInline 
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', background: '#000' }} 
+                />
+                
                 {/* Local Flutuante */}
                 {useMedia && (
-                  <div style={{ position: 'absolute', bottom: '10px', right: '10px', width: '120px', height: '150px', borderRadius: '8px', overflow: 'hidden', border: '2px solid var(--gold)', boxShadow: '0 0 10px rgba(0,0,0,0.5)' }}>
-                    <video ref={localVideoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <div 
+                    style={{ 
+                      position: 'absolute', 
+                      bottom: '10px', 
+                      right: '10px', 
+                      width: isMobile ? '70px' : '110px', 
+                      height: isMobile ? '95px' : '145px', 
+                      borderRadius: '8px', 
+                      overflow: 'hidden', 
+                      border: '2px solid var(--gold)', 
+                      boxShadow: '0 4px 15px rgba(0,0,0,0.6)',
+                      zIndex: 5
+                    }}
+                  >
+                    <video 
+                      ref={localVideoRef} 
+                      autoPlay 
+                      playsInline 
+                      muted 
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                    />
                   </div>
                 )}
+                
                 {/* Controles flutuantes */}
-                <div style={{ position: 'absolute', bottom: '10px', left: '10px', display: 'flex', gap: '8px', zIndex: 10 }}>
-                  <button onClick={toggleAudio} style={{ padding: '8px', borderRadius: '50%', background: 'rgba(0,0,0,0.6)', color: '#fff', border: '1px solid var(--line)' }}>
-                    {audioEnabled ? <Mic size={14} /> : <MicOff size={14} />}
+                <div style={{ position: 'absolute', bottom: '10px', left: '10px', display: 'flex', gap: '6px', zIndex: 10 }}>
+                  <button onClick={toggleAudio} style={{ padding: '8px', borderRadius: '50%', background: 'rgba(0,0,0,0.7)', color: '#fff', border: '1px solid var(--line)' }}>
+                    {audioEnabled ? <Mic size={12} /> : <MicOff size={12} />}
                   </button>
-                  <button onClick={toggleVideo} style={{ padding: '8px', borderRadius: '50%', background: 'rgba(0,0,0,0.6)', color: '#fff', border: '1px solid var(--line)' }}>
-                    {videoEnabled ? <Video size={14} /> : <VideoOff size={14} />}
+                  <button onClick={toggleVideo} style={{ padding: '8px', borderRadius: '50%', background: 'rgba(0,0,0,0.7)', color: '#fff', border: '1px solid var(--line)' }}>
+                    {videoEnabled ? <Video size={12} /> : <VideoOff size={12} />}
                   </button>
                   {callState === 'connected' && (
-                    <button onClick={endCall} style={{ padding: '6px 12px', borderRadius: '4px', background: 'var(--red)', color: '#fff', fontSize: '11px', border: 'none' }} className="btn-primary">
-                      Desconectar
+                    <button onClick={endCall} style={{ padding: '6px 10px', borderRadius: '4px', background: 'var(--red)', color: '#fff', fontSize: '11px', border: 'none' }}>
+                      Sair
                     </button>
                   )}
                 </div>
@@ -1230,7 +1422,7 @@ export default function Home() {
             )}
 
             {/* Histórico de Mensagens */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {messages.map((msg) => {
                 const isMe = msg.senderId === user.id;
                 const liked = msg.likedBy.includes(user.id);
@@ -1239,7 +1431,7 @@ export default function Home() {
                     key={msg.id} 
                     style={{ 
                       alignSelf: isMe ? 'flex-end' : 'flex-start',
-                      maxWidth: '60%',
+                      maxWidth: '80%',
                       display: 'flex',
                       flexDirection: 'column',
                       gap: '4px',
@@ -1247,13 +1439,12 @@ export default function Home() {
                     }}
                     className="animate-slide-in"
                   >
-                    {/* Conteúdo da resposta se houver */}
                     {msg.parentMessageId && (
                       <div style={{ 
                         background: 'rgba(255,255,255,0.05)', 
                         borderLeft: '3px solid var(--gold)', 
-                        padding: '6px 10px', 
-                        borderRadius: '6px', 
+                        padding: '4px 8px', 
+                        borderRadius: '4px', 
                         fontSize: '11px',
                         color: 'var(--muted)',
                         alignSelf: isMe ? 'flex-end' : 'flex-start',
@@ -1263,19 +1454,16 @@ export default function Home() {
                       </div>
                     )}
 
-                    {/* Balão da Mensagem */}
                     <div style={{ 
                       background: isMe ? 'var(--gold-soft)' : 'var(--bg-3)', 
                       border: isMe ? '1px solid var(--gold)' : '1px solid var(--line)', 
                       color: isMe ? '#fff' : 'var(--text)', 
-                      padding: '10px 14px', 
+                      padding: '8px 12px', 
                       borderRadius: isMe ? '14px 14px 2px 14px' : '14px 14px 14px 2px',
-                      boxShadow: isMe ? '0 0 8px rgba(234,200,71,0.05)' : 'none',
                       position: 'relative'
                     }}>
-                      <p style={{ fontSize: '14px', lineHeight: '1.4', wordBreak: 'break-word' }}>{msg.content}</p>
+                      <p style={{ fontSize: '13px', lineHeight: '1.4', wordBreak: 'break-word' }}>{msg.content}</p>
                       
-                      {/* Selo de Likes */}
                       {msg.likedBy.length > 0 && (
                         <div style={{ 
                           position: 'absolute', 
@@ -1284,11 +1472,11 @@ export default function Home() {
                           background: 'var(--bg-2)', 
                           border: '1px solid var(--line)', 
                           borderRadius: '10px', 
-                          padding: '2px 6px', 
+                          padding: '2px 5px', 
                           display: 'flex', 
                           alignItems: 'center', 
-                          gap: '3px',
-                          fontSize: '9px',
+                          gap: '2px',
+                          fontSize: '8px',
                           color: 'var(--gold)'
                         }}>
                           <Heart size={8} fill="var(--gold)" />
@@ -1297,17 +1485,16 @@ export default function Home() {
                       )}
                     </div>
 
-                    {/* Meta/Ações da Mensagem */}
                     <div style={{ 
                       display: 'flex', 
-                      gap: '10px', 
+                      gap: '8px', 
                       alignSelf: isMe ? 'flex-end' : 'flex-start', 
-                      fontSize: '10px', 
+                      fontSize: '9px', 
                       color: 'var(--muted)',
                       padding: '0 4px'
                     }}>
                       <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                      <button onClick={() => setReplyingTo(msg)} style={{ color: 'var(--muted)', border: 'none', background: 'none' }} className="friend-item-hover">Responder</button>
+                      <button onClick={() => setReplyingTo(msg)} style={{ color: 'var(--muted)', border: 'none', background: 'none' }}>Resp</button>
                       <button onClick={() => handleLikeMessage(msg.id)} style={{ color: liked ? 'var(--gold)' : 'var(--muted)', border: 'none', background: 'none' }}>
                         {liked ? 'Descurtir' : 'Curtir'}
                       </button>
@@ -1319,28 +1506,27 @@ export default function Home() {
             </div>
 
             {/* Input Bar */}
-            <form onSubmit={handleSendMessage} style={{ padding: '16px', background: 'var(--bg-2)', borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {/* Caixa de visualização do Reply */}
+            <form onSubmit={handleSendMessage} style={{ padding: '12px', background: 'var(--bg-2)', borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0 }}>
               {replyingTo && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-3)', borderLeft: '3px solid var(--gold)', padding: '6px 12px', borderRadius: '4px' }} className="animate-slide-in">
-                  <div style={{ fontSize: '12px' }}>
-                    <span style={{ color: 'var(--gold)', fontWeight: '600', display: 'block', fontSize: '10px' }}>RESPONDENDO A:</span>
-                    <span style={{ color: 'var(--muted)' }}>{replyingTo.content}</span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-3)', borderLeft: '3px solid var(--gold)', padding: '6px 12px', borderRadius: '4px' }}>
+                  <div style={{ fontSize: '11px', minWidth: 0 }}>
+                    <span style={{ color: 'var(--gold)', fontWeight: '600', display: 'block', fontSize: '9px' }}>RESPONDENDO A:</span>
+                    <span style={{ color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', whiteSpace: 'nowrap' }}>{replyingTo.content}</span>
                   </div>
                   <button type="button" onClick={() => setReplyingTo(null)} style={{ color: 'var(--muted)', background: 'none', border: 'none' }}><X size={14} /></button>
                 </div>
               )}
 
-              <div style={{ display: 'flex', gap: '12px' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
                 <input 
                   type="text" 
-                  placeholder="Escreva uma mensagem..." 
+                  placeholder="Escreva..." 
                   value={messageText}
                   onChange={e => setMessageText(e.target.value)}
-                  style={{ flex: 1, padding: '12px' }}
+                  style={{ flex: 1, padding: '10px 12px', minHeight: '40px', fontSize: '13px' }}
                 />
-                <button type="submit" className="btn-primary" style={{ padding: '12px 18px' }}>
-                  <Send size={16} />
+                <button type="submit" className="btn-primary" style={{ padding: '10px 14px', minHeight: '40px' }}>
+                  <Send size={14} />
                 </button>
               </div>
             </form>
@@ -1348,11 +1534,16 @@ export default function Home() {
           </div>
         ) : inQueue ? (
           // FILA DE MATCHMAKING OMEGLE
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px', textAlign: 'center' }} className="animate-fade-in">
-            {/* Animação do Radar Dourado Otimizado */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px', textAlign: 'center' }} className="animate-fade-in">
+            {isMobile && (
+              <button onClick={() => setActiveView('sidebar')} style={{ position: 'absolute', top: '16px', left: '16px', color: 'var(--muted)', padding: '8px' }}>
+                <ChevronLeft size={24} /> Voltar
+              </button>
+            )}
+
             <div style={{ 
-              width: '140px', 
-              height: '140px', 
+              width: '120px', 
+              height: '120px', 
               borderRadius: '50%', 
               border: '2px solid var(--gold)', 
               display: 'flex', 
@@ -1360,79 +1551,87 @@ export default function Home() {
               justifyContent: 'center',
               position: 'relative',
               boxShadow: '0 0 20px var(--gold-glow)',
-              marginBottom: '32px',
+              marginBottom: '24px',
             }}>
-              {/* Ondas crescentes de radar em CSS */}
               <div className="radar-wave-1"></div>
               <div className="radar-wave-2"></div>
-              <Video size={44} style={{ color: 'var(--gold)', zIndex: 2 }} />
+              <Video size={36} style={{ color: 'var(--gold)', zIndex: 2 }} />
             </div>
             
-            <h2 style={{ color: 'var(--gold)', marginBottom: '8px' }}>Matchmaking Conectado</h2>
-            <p style={{ color: 'var(--muted)', maxWidth: '400px', fontSize: '14px', marginBottom: '24px' }}>
+            <h2 style={{ color: 'var(--gold)', marginBottom: '8px', fontSize: '20px' }}>Matchmaking Conectado</h2>
+            <p style={{ color: 'var(--muted)', maxWidth: '300px', fontSize: '13px', marginBottom: '24px', lineHeight: '1.4' }}>
               {queueStatusText}
             </p>
-            <button className="btn-secondary" onClick={cancelRandomMatch}>
-              Cancelar Busca
+            <button className="btn-secondary" onClick={cancelRandomMatch} style={{ minHeight: '40px' }}>
+              Cancelar
             </button>
           </div>
         ) : (
-          // TELA INICIAL / BEM-VINDO
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px', textAlign: 'center' }} className="animate-fade-in">
-            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'var(--gold-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--gold)', marginBottom: '20px' }} className="animate-float">
-              <ShieldAlert size={36} style={{ color: 'var(--gold)' }} />
+          // TELA INICIAL / BEM-VINDO - Ocultada no mobile
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px', textAlign: 'center' }} className="animate-fade-in">
+            {isMobile && (
+              <button 
+                onClick={() => setActiveView('sidebar')} 
+                className="btn-primary animate-pulse-glow" 
+                style={{ position: 'absolute', top: '16px', right: '16px', padding: '8px 16px', fontSize: '12px' }}
+              >
+                Ver Amigos <Users size={14} style={{ marginLeft: '4px' }} />
+              </button>
+            )}
+
+            <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'var(--gold-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--gold)', marginBottom: '16px' }} className="animate-float">
+              <ShieldAlert size={28} style={{ color: 'var(--gold)' }} />
             </div>
             
-            <h1 style={{ color: 'var(--gold)', fontSize: '32px', marginBottom: '8px' }}>Bem-vindo ao NexChat</h1>
-            <p style={{ color: 'var(--muted)', maxWidth: '460px', fontSize: '14px', lineHeight: '1.6', marginBottom: '32px' }}>
-              Uma mistura perfeita de videochamadas aleatórias (Omegle), bate-papo de amigos (WhatsApp) e moderação robusta com servidores (Discord). 
-              Escolha seus filtros no menu ao lado e comece a fazer amizades!
+            <h1 style={{ color: 'var(--gold)', fontSize: '24px', marginBottom: '8px' }}>NexChat</h1>
+            <p style={{ color: 'var(--muted)', maxWidth: '400px', fontSize: '13px', lineHeight: '1.5', marginBottom: '24px' }}>
+              Combine conexões instantâneas (Omegle) com chat privado (WhatsApp) e moderação robusta (Discord). Configure as opções abaixo e inicie a diversão!
             </p>
 
             {/* Configuração de Filtros de Pareamento */}
-            <div className="glass-card animate-slide-in" style={{ maxWidth: '500px', width: '100%', border: '1px solid var(--line)', textAlign: 'left' }}>
-              <h3 style={{ color: '#fff', fontSize: '15px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Settings size={16} /> Configurar Próximo Match Aleatório
+            <div className="glass-card animate-slide-in" style={{ maxWidth: '440px', width: '100%', border: '1px solid var(--line)', textAlign: 'left', padding: '16px' }}>
+              <h3 style={{ color: '#fff', fontSize: '14px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Settings size={14} /> Filtros de Matchmaking
               </h3>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <div style={{ display: 'flex', gap: '12px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'flex', gap: '10px' }}>
                   <div style={{ flex: 1 }}>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '6px' }}>Preferência de Gênero</label>
-                    <select value={matchGender} onChange={e => setMatchGender(e.target.value)} style={{ width: '100%', fontSize: '13px' }}>
-                      <option value="any">Qualquer Gênero</option>
-                      <option value="male">Apenas Homens</option>
-                      <option value="female">Apenas Mulheres</option>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Filtro Gênero</label>
+                    <select value={matchGender} onChange={e => setMatchGender(e.target.value)} style={{ width: '100%', fontSize: '12px', minHeight: '38px', padding: '6px 10px' }}>
+                      <option value="any">Qualquer</option>
+                      <option value="male">Homens</option>
+                      <option value="female">Mulheres</option>
                     </select>
                   </div>
                   
                   <div style={{ flex: 1 }}>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '6px' }}>Preferência de País</label>
-                    <select value={matchCountry} onChange={e => setMatchCountry(e.target.value)} style={{ width: '100%', fontSize: '13px' }}>
-                      <option value="any">Qualquer País</option>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Filtro País</label>
+                    <select value={matchCountry} onChange={e => setMatchCountry(e.target.value)} style={{ width: '100%', fontSize: '12px', minHeight: '38px', padding: '6px 10px' }}>
+                      <option value="any">Qualquer</option>
                       <option value="BR">Brasil</option>
-                      <option value="US">Estados Unidos</option>
+                      <option value="US">EUA</option>
                       <option value="PT">Portugal</option>
                     </select>
                   </div>
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '6px' }}>Modo do Chat</label>
-                  <div style={{ display: 'flex', gap: '12px' }}>
-                    <label style={{ flex: 1, padding: '10px', background: matchMode === 'text' ? 'var(--gold-soft)' : 'var(--bg-3)', border: matchMode === 'text' ? '1px solid var(--gold)' : '1px solid var(--line)', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Formato</label>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <label style={{ flex: 1, padding: '8px', background: matchMode === 'text' ? 'var(--gold-soft)' : 'var(--bg-3)', border: matchMode === 'text' ? '1px solid var(--gold)' : '1px solid var(--line)', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', cursor: 'pointer', fontSize: '12px', minHeight: '38px' }}>
                       <input type="radio" name="matchMode" checked={matchMode === 'text'} onChange={() => setMatchMode('text')} style={{ display: 'none' }} />
-                      <MessageSquare size={14} style={{ color: matchMode === 'text' ? 'var(--gold)' : 'var(--muted)' }} /> Bate-papo de Texto
+                      <MessageSquare size={13} style={{ color: matchMode === 'text' ? 'var(--gold)' : 'var(--muted)' }} /> Texto
                     </label>
-                    <label style={{ flex: 1, padding: '10px', background: matchMode === 'video' ? 'var(--gold-soft)' : 'var(--bg-3)', border: matchMode === 'video' ? '1px solid var(--gold)' : '1px solid var(--line)', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', opacity: useMedia ? 1 : 0.5 }}>
+                    <label style={{ flex: 1, padding: '8px', background: matchMode === 'video' ? 'var(--gold-soft)' : 'var(--bg-3)', border: matchMode === 'video' ? '1px solid var(--gold)' : '1px solid var(--line)', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', cursor: 'pointer', fontSize: '12px', minHeight: '38px', opacity: useMedia ? 1 : 0.5 }}>
                       <input type="radio" name="matchMode" disabled={!useMedia} checked={matchMode === 'video'} onChange={() => setMatchMode('video')} style={{ display: 'none' }} />
-                      <Video size={14} style={{ color: matchMode === 'video' ? 'var(--gold)' : 'var(--muted)' }} /> Chamada de Vídeo
+                      <Video size={13} style={{ color: matchMode === 'video' ? 'var(--gold)' : 'var(--muted)' }} /> Vídeo
                     </label>
                   </div>
                 </div>
 
-                <button className="btn-primary animate-pulse-glow" onClick={startRandomMatch} style={{ width: '100%', justifyContent: 'center', marginTop: '6px' }}>
-                  Iniciar Conexão Aleatória <Play size={14} />
+                <button className="btn-primary animate-pulse-glow" onClick={startRandomMatch} style={{ width: '100%', justifyContent: 'center', marginTop: '4px', minHeight: '44px' }}>
+                  Buscar Conexão <Play size={12} />
                 </button>
               </div>
             </div>
@@ -1442,21 +1641,21 @@ export default function Home() {
 
       {/* 3. TELA DE RECEBIMENTO DE CHAMADA DIRETA */}
       {incomingCall && (
-        <div style={{ position: 'fixed', top: '24px', right: '24px', zIndex: 1000, width: '320px', background: 'rgba(17,17,21,0.95)', backdropFilter: 'blur(10px)', border: '1px solid var(--gold)', borderRadius: '12px', padding: '16px', boxShadow: '0 0 20px rgba(234, 200, 71, 0.25)' }} className="animate-pulse-glow">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
-            <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'var(--gold-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: 'var(--gold)' }}>
+        <div style={{ position: 'fixed', top: '24px', right: '24px', zIndex: 1000, width: '280px', background: 'rgba(17,17,21,0.95)', backdropFilter: 'blur(10px)', border: '1px solid var(--gold)', borderRadius: '12px', padding: '16px', boxShadow: '0 4px 20px rgba(234, 200, 71, 0.35)' }} className="animate-pulse-glow">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+            <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--gold-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: 'var(--gold)' }}>
               {incomingCall.callerData.username[0].toUpperCase()}
             </div>
             <div>
-              <h4 style={{ fontSize: '14px', color: '#fff' }}>{incomingCall.callerData.username}</h4>
-              <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Chamando você ({incomingCall.type === 'video' ? 'Vídeo' : 'Áudio'})...</span>
+              <h4 style={{ fontSize: '13px', color: '#fff' }}>{incomingCall.callerData.username}</h4>
+              <span style={{ fontSize: '10px', color: 'var(--muted)' }}>Chamando você ({incomingCall.type === 'video' ? 'Vídeo' : 'Áudio'})...</span>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button onClick={acceptIncomingCall} className="btn-primary" style={{ flex: 1, padding: '8px', fontSize: '12px', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={acceptIncomingCall} className="btn-primary" style={{ flex: 1, padding: '6px', fontSize: '12px', justifyContent: 'center', minHeight: '34px' }}>
               Atender
             </button>
-            <button onClick={rejectIncomingCall} className="btn-secondary" style={{ flex: 1, padding: '8px', fontSize: '12px', background: 'var(--red)', color: '#fff', border: 'none' }}>
+            <button onClick={rejectIncomingCall} className="btn-secondary" style={{ flex: 1, padding: '6px', fontSize: '12px', background: 'var(--red)', color: '#fff', border: 'none', minHeight: '34px' }}>
               Rejeitar
             </button>
           </div>
@@ -1465,16 +1664,16 @@ export default function Home() {
 
       {/* 4. MODAL DE DENÚNCIA (REPORT) */}
       {showReportModal && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div className="glass-card animate-slide-in" style={{ maxWidth: '400px', width: '100%', border: '1px solid var(--line)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ color: 'var(--red)' }}>Denunciar Usuário</h3>
-              <button onClick={() => setShowReportModal(false)} style={{ color: 'var(--muted)', background: 'none', border: 'none' }}><X /></button>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div className="glass-card animate-slide-in" style={{ maxWidth: '380px', width: '100%', border: '1px solid var(--line)', padding: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <h3 style={{ color: 'var(--red)', fontSize: '16px' }}>Denunciar</h3>
+              <button onClick={() => setShowReportModal(false)} style={{ color: 'var(--muted)', background: 'none', border: 'none', padding: '6px' }}><X /></button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '6px' }}>Selecione o Motivo</label>
-                <select value={reportReason} onChange={e => setReportReason(e.target.value)} style={{ width: '100%' }}>
+                <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Motivo</label>
+                <select value={reportReason} onChange={e => setReportReason(e.target.value)} style={{ width: '100%', minHeight: '38px' }}>
                   <option value="Comportamento impróprio">Comportamento impróprio</option>
                   <option value="Conteúdo impróprio / Nudez">Conteúdo impróprio / Nudez</option>
                   <option value="Assédio / Discurso de ódio">Assédio / Discurso de ódio</option>
@@ -1482,16 +1681,16 @@ export default function Home() {
                 </select>
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '6px' }}>Detalhes da Ocorrência</label>
+                <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Detalhes</label>
                 <textarea 
                   rows="3" 
-                  placeholder="Escreva brevemente o que aconteceu..." 
+                  placeholder="Descreva..." 
                   value={reportDetails}
                   onChange={e => setReportDetails(e.target.value)}
-                  style={{ width: '100%', resize: 'none', background: 'var(--bg-3)', border: '1px solid var(--line)', color: '#fff', padding: '10px', borderRadius: '6px' }}
+                  style={{ width: '100%', resize: 'none', background: 'var(--bg-3)', border: '1px solid var(--line)', color: '#fff', padding: '8px', borderRadius: '6px' }}
                 />
               </div>
-              <button className="btn-primary" onClick={submitReport} style={{ background: 'var(--red)', color: '#fff', justifyContent: 'center', marginTop: '6px' }}>
+              <button className="btn-primary" onClick={submitReport} style={{ background: 'var(--red)', color: '#fff', justifyContent: 'center', marginTop: '4px', minHeight: '40px' }}>
                 Enviar Denúncia
               </button>
             </div>
