@@ -20,6 +20,7 @@ CREATE TABLE "User" (
   "gender" TEXT, -- 'male', 'female', 'other'
   "country" TEXT, -- Código ISO ou nome do país
   "avatarUrl" TEXT,
+  "isOnline" BOOLEAN NOT NULL DEFAULT false,
   "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
   "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -45,7 +46,8 @@ CREATE TABLE "DirectMessage" (
   "content" TEXT NOT NULL,
   "parentMessageId" UUID REFERENCES "DirectMessage"(id) ON DELETE SET NULL, -- Para sistema de Reply
   "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
-  "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+  "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+  "readAt" TIMESTAMPTZ -- Momento em que o destinatário leu a mensagem (tick de visto)
 );
 
 -- Tabela de Likes nas Mensagens (Tabela Pivô)

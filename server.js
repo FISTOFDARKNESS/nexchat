@@ -1,7 +1,54 @@
 const { createServer } = require('http');
 const { parse } = require('url');
+const fs = require('fs');
+const path = require('path');
 const next = require('next');
 const { Server } = require('socket.io');
+const { Pool } = require('pg');
+
+// Carrega variáveis do .env local (no Render elas vêm do ambiente)
+function loadEnvFile(file) {
+  if (!fs.existsSync(file)) return;
+  const content = fs.readFileSync(file, 'utf8');
+  for (const line of content.split(/\r?\n/)) {
+    const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+    if (!m) continue;
+    let val = m[2].trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    if (!(m[1] in process.env)) process.env[m[1]] = val;
+  }
+}
+loadEnvFile(path.join(__dirname, '.env'));
+
+function sanitizeConnectionString(url) {
+  const [base, query = ''] = url.split('?');
+  if (!query) return url;
+  const kept = query.split('&').filter((p) => !/^ssl/i.test(p));
+  return kept.length > 0 ? `${base}?${kept.join('&')}` : base;
+}
+
+let dbPool = null;
+function getDbPool() {
+  if (!dbPool && process.env.DATABASE_URL) {
+    dbPool = new Pool({
+      connectionString: sanitizeConnectionString(process.env.DATABASE_URL),
+      max: 3,
+      connectionTimeoutMillis: 10000,
+      ssl: { rejectUnauthorized: false },
+      statement_timeout: 10000,
+    });
+  }
+  return dbPool;
+}
+
+function setUserOnline(userId, online) {
+  const pool = getDbPool();
+  if (!pool) return;
+  pool.query('UPDATE "User" SET "isOnline" = $2 WHERE id = $1', [userId, online])
+    .catch((e) => console.error('Erro ao atualizar isOnline:', e.message));
+}
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
@@ -35,12 +82,21 @@ app.prepare().then(() => {
   // Mapeia socketId -> userId (definido via evento 'identify')
   let socketUsers = {};
 
+  // Mapeia userId -> Set de socketIds (presença por usuário)
+  let userSockets = {};
+
   io.on('connection', (socket) => {
     console.log(`Socket conectado: ${socket.id}`);
 
     socket.on('identify', ({ userId } = {}) => {
-      if (userId) {
-        socketUsers[socket.id] = userId;
+      if (!userId) return;
+      const alreadyOnline = !userSockets[userId] || userSockets[userId].size === 0;
+      socketUsers[socket.id] = userId;
+      if (!userSockets[userId]) userSockets[userId] = new Set();
+      userSockets[userId].add(socket.id);
+      if (alreadyOnline) {
+        io.emit('user_online', { userId });
+        setUserOnline(userId, true);
       }
     });
 
@@ -233,6 +289,18 @@ app.prepare().then(() => {
       socket.to(roomId).emit('receive_friend_msg', message);
     });
 
+    socket.on('friend_typing', (data) => {
+      // data: { roomId, senderId, isTyping }
+      const { roomId, senderId, isTyping } = data;
+      socket.to(roomId).emit('friend_typing', { senderId, isTyping });
+    });
+
+    socket.on('friend_msgs_read', (data) => {
+      // data: { roomId, readerId }
+      const { roomId, readerId } = data;
+      socket.to(roomId).emit('friend_msgs_read', { readerId });
+    });
+
     socket.on('like_friend_msg', (data) => {
       // data: { roomId, messageId, likedByUserId }
       const { roomId, messageId, likedByUserId } = data;
@@ -299,8 +367,17 @@ app.prepare().then(() => {
       // Remove da fila de matchmaking se estiver nela
       matchmakingQueue = matchmakingQueue.filter(item => item.socketId !== socket.id);
 
-      // Limpa a identidade do socket
+      // Atualiza presença online (se era o último socket do usuário)
+      const disconnectedUserId = socketUsers[socket.id];
       delete socketUsers[socket.id];
+      if (disconnectedUserId && userSockets[disconnectedUserId]) {
+        userSockets[disconnectedUserId].delete(socket.id);
+        if (userSockets[disconnectedUserId].size === 0) {
+          delete userSockets[disconnectedUserId];
+          io.emit('user_offline', { userId: disconnectedUserId });
+          setUserOnline(disconnectedUserId, false);
+        }
+      }
 
       // Encerra chamadas diretas em que este socket era participante
       for (const roomId in activeCalls) {

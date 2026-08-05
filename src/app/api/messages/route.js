@@ -20,7 +20,7 @@ export async function GET(req) {
 
     // Busca as mensagens e as informações de quem enviou e respondeu
     const messages = await sql(
-      `SELECT m.id, m."senderId", m."receiverId", m.content, m."parentMessageId", m."createdAt",
+      `SELECT m.id, m."senderId", m."receiverId", m.content, m."parentMessageId", m."createdAt", m."readAt",
               pm.content as "parentContent",
               COALESCE(
                 (SELECT json_agg(ml."userId") 
@@ -120,6 +120,23 @@ export async function POST(req) {
         );
         return NextResponse.json({ success: true, liked: true, userId });
       }
+    }
+
+    // 3. MARCAR MENSAGENS RECEBIDAS COMO LIDAS (READ)
+    if (action === 'read') {
+      const { senderId } = body;
+      if (!senderId) {
+        return NextResponse.json({ error: 'senderId é obrigatório' }, { status: 400 });
+      }
+
+      const result = await sql(
+        `UPDATE "DirectMessage" SET "readAt" = COALESCE("readAt", now())
+         WHERE "receiverId" = $1 AND "senderId" = $2 AND "readAt" IS NULL
+         RETURNING id`,
+        [userId, senderId]
+      );
+
+      return NextResponse.json({ success: true, updated: result.length });
     }
 
     return NextResponse.json({ error: 'Ação inválida' }, { status: 400 });

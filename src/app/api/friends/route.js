@@ -18,8 +18,10 @@ export async function GET(req) {
     // Buscar lista de amigos aceitos
     // Precisamos unir com a tabela User para pegar as informações do amigo
     const friends = await sql(
-      `SELECT f.id as friendshipId, f.status, f.createdAt,
-              u.id as friendId, u.username, u."customId", u."avatarUrl", u.country, u.gender
+      `SELECT f.id as "friendshipId", f.status, f."createdAt",
+              u.id as "friendId", u.username, u."customId", u."avatarUrl", u.country, u.gender, u."isOnline",
+              (SELECT COUNT(*) FROM "DirectMessage" dm
+               WHERE dm."senderId" = u.id AND dm."receiverId" = $1 AND dm."readAt" IS NULL)::int AS "unreadCount"
        FROM "Friendship" f
        JOIN "User" u ON (u.id = CASE WHEN f."userId1" = $1 THEN f."userId2" ELSE f."userId1" END)
        WHERE (f."userId1" = $1 OR f."userId2" = $1) AND f.status = 'ACCEPTED'`,
@@ -28,8 +30,8 @@ export async function GET(req) {
 
     // Buscar solicitações de amizades pendentes recebidas por este usuário
     const pendingReceived = await sql(
-      `SELECT f.id as friendshipId, f.createdAt,
-              u.id as friendId, u.username, u."customId", u."avatarUrl", u.country
+      `SELECT f.id as "friendshipId", f."createdAt",
+              u.id as "friendId", u.username, u."customId", u."avatarUrl", u.country
        FROM "Friendship" f
        JOIN "User" u ON u.id = f."senderId"
        WHERE (f."userId1" = $1 OR f."userId2" = $1) AND f.status = 'PENDING' AND f."senderId" != $1`,
@@ -38,8 +40,8 @@ export async function GET(req) {
 
     // Buscar solicitações enviadas por este usuário que ainda estão pendentes
     const pendingSent = await sql(
-      `SELECT f.id as friendshipId, f.createdAt,
-              u.id as friendId, u.username, u."customId", u."avatarUrl", u.country
+      `SELECT f.id as "friendshipId", f."createdAt",
+              u.id as "friendId", u.username, u."customId", u."avatarUrl", u.country
        FROM "Friendship" f
        JOIN "User" u ON (u.id = CASE WHEN f."userId1" = $1 THEN f."userId2" ELSE f."userId1" END)
        WHERE (f."userId1" = $1 OR f."userId2" = $1) AND f.status = 'PENDING' AND f."senderId" = $1`,

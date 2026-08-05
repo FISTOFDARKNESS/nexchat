@@ -6,7 +6,7 @@ import {
   Video, Phone, UserPlus, Send, Heart, Smile, Shield, Flag, X, 
   MessageSquare, LogOut, MapPin, User, Users, Check, Trash, ShieldAlert,
   Moon, CheckSquare, Settings, AlertCircle, VolumeX, Mic, MicOff, VideoOff, Play,
-  Plus, CheckCircle, Clock, Info, ChevronLeft, SkipForward
+  Plus, CheckCircle, Clock, Info, ChevronLeft, SkipForward, CheckCheck
 } from 'lucide-react';
 
 let socket;
@@ -152,6 +152,16 @@ export default function Home() {
   const [reportReason, setReportReason] = useState('Comportamento impróprio');
   const [reportDetails, setReportDetails] = useState('');
 
+  // --- Presença Online, Perfil e Digitando ---
+  const [onlineUsers, setOnlineUsers] = useState({}); // userId -> true
+  const [localUnread, setLocalUnread] = useState({}); // friendId -> contagem recebida em tempo real
+  const [profileUser, setProfileUser] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [typingStatus, setTypingStatus] = useState({ friendId: null, isTyping: false });
+  const typingTimeoutRef = useRef(null);
+  const typingEmittedRef = useRef(false);
+
   // --- Referências de Elementos e WebRTC ---
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -215,6 +225,100 @@ export default function Home() {
     }
   }, [user]);
 
+  // --- Marcar mensagens recebidas como lidas (tick de visto) ---
+  const markMessagesRead = useCallback(async (friendId) => {
+    if (!user) return;
+    try {
+      const res = await authedFetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'read', senderId: friendId })
+      });
+      const data = await res.json();
+      if (data.success && data.updated > 0) {
+        setMessages(prev => prev.map(m =>
+          m.senderId === friendId && !m.readAt ? { ...m, readAt: new Date().toISOString() } : m
+        ));
+        setLocalUnread(prev => {
+          const n = { ...prev };
+          delete n[friendId];
+          return n;
+        });
+      }
+      const sortedIds = [user.id, friendId].sort();
+      const chatRoomId = `friend_chat_${sortedIds[0]}_${sortedIds[1]}`;
+      socket?.emit('friend_msgs_read', { roomId: chatRoomId, readerId: user.id });
+    } catch (err) {
+      console.error(err);
+    }
+  }, [user]);
+
+  // --- Abrir Perfil de um Usuário ---
+  const openProfile = useCallback(async (target) => {
+    setProfileLoading(true);
+    setProfileError('');
+    setProfileUser(null);
+    try {
+      const q = target.customId ? `customId=${encodeURIComponent(target.customId)}` : `id=${target.friendId}`;
+      const res = await authedFetch(`/api/users?${q}`);
+      const data = await res.json();
+      if (data.success) {
+        setProfileUser(data.user);
+      } else {
+        setProfileError(data.error || 'Não foi possível carregar o perfil');
+      }
+    } catch (err) {
+      console.error(err);
+      setProfileError('Erro ao carregar o perfil');
+    } finally {
+      setProfileLoading(false);
+    }
+  }, []);
+
+  // --- Iniciar conversa a partir do perfil ---
+  const startChatFromProfile = () => {
+    if (!profileUser) return;
+    const f = friendsList.find(fr => fr.friendId === profileUser.id);
+    setProfileUser(null);
+    setProfileError('');
+    if (f) {
+      stopTyping();
+      setTypingStatus({ friendId: null, isTyping: false });
+      setSelectedFriend(f);
+      setShowAdminPanel(false);
+    } else {
+      addToast('Este usuário não está na sua lista de amigos.', 'error');
+    }
+  };
+
+  // --- Indicador "digitando..." ---
+  const emitTyping = (isTyping) => {
+    if (!selectedFriend || inRandomChat) return;
+    const sortedIds = [user.id, selectedFriend.friendId].sort();
+    const chatRoomId = `friend_chat_${sortedIds[0]}_${sortedIds[1]}`;
+    socket?.emit('friend_typing', { roomId: chatRoomId, senderId: user.id, isTyping });
+  };
+
+  const handleTypingChange = () => {
+    if (!typingEmittedRef.current) {
+      typingEmittedRef.current = true;
+      emitTyping(true);
+    }
+    clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      typingEmittedRef.current = false;
+      emitTyping(false);
+    }, 1500);
+  };
+
+  const stopTyping = () => {
+    clearTimeout(typingTimeoutRef.current);
+    if (typingEmittedRef.current) {
+      typingEmittedRef.current = false;
+      emitTyping(false);
+    }
+  };
+
   // Carregar mensagens históricas com o amigo selecionado
   useEffect(() => {
     if (!selectedFriend || !user) return;
@@ -237,6 +341,16 @@ export default function Home() {
         const data = await res.json();
         if (data.success) {
           setMessages(data.messages || []);
+          setLocalUnread(prev => {
+            const n = { ...prev };
+            delete n[selectedFriend.friendId];
+            return n;
+          });
+          setFriendsList(prev => prev.map(f =>
+            f.friendId === selectedFriend.friendId ? { ...f, unreadCount: 0 } : f
+          ));
+          const hasUnread = data.messages.some(m => m.senderId === selectedFriend.friendId && !m.readAt);
+          if (hasUnread) markMessagesRead(selectedFriend.friendId);
         }
       } catch (e) {
         console.error(e);
@@ -249,7 +363,7 @@ export default function Home() {
         socket.emit('leave_friend_chat', { roomId: chatRoomId });
       }
     };
-  }, [selectedFriend, user]);
+  }, [selectedFriend, user, markMessagesRead]);
 
   // --- Inicializar Câmera e Áudio ---
   const requestMediaPermissions = async (wantsMedia = true) => {
@@ -449,10 +563,38 @@ export default function Home() {
       const activeFriend = selectedFriendRef.current;
       if (activeFriend && (msg.senderId === activeFriend.friendId || msg.receiverId === activeFriend.friendId)) {
         setMessages(prev => [...prev, msg]);
+        if (msg.senderId === activeFriend.friendId) {
+          markMessagesRead(activeFriend.friendId);
+        }
       } else {
         addToast('Nova mensagem de amizade!', 'info');
-        loadFriends();
+        setLocalUnread(prev => ({ ...prev, [msg.senderId]: (prev[msg.senderId] || 0) + 1 }));
       }
+    });
+
+    socket.on('friend_typing', (data) => {
+      const { senderId, isTyping } = data;
+      if (senderId === selectedFriendRef.current?.friendId) {
+        setTypingStatus({ friendId: senderId, isTyping });
+      }
+    });
+
+    socket.on('friend_msgs_read', ({ readerId }) => {
+      setMessages(prev => prev.map(m =>
+        m.senderId === user.id && !m.readAt ? { ...m, readAt: new Date().toISOString() } : m
+      ));
+    });
+
+    socket.on('user_online', (data) => {
+      setOnlineUsers(prev => ({ ...prev, [data.userId]: true }));
+    });
+
+    socket.on('user_offline', (data) => {
+      setOnlineUsers(prev => {
+        const n = { ...prev };
+        delete n[data.userId];
+        return n;
+      });
     });
 
     socket.on('receive_friend_msg_like', (data) => {
@@ -494,7 +636,7 @@ export default function Home() {
         socket.disconnect();
       }
     };
-  }, [user, loadFriends, addToast, initWebRTC, cleanupCall, removeCallListeners]);
+  }, [user, loadFriends, addToast, initWebRTC, cleanupCall, removeCallListeners, markMessagesRead]);
 
   // --- Ações de Login ---
   const handleAuth = async (e) => {
@@ -663,6 +805,7 @@ export default function Home() {
           const sortedIds = [user.id, selectedFriend.friendId].sort();
           const chatRoomId = `friend_chat_${sortedIds[0]}_${sortedIds[1]}`;
           socket.emit('send_friend_msg', { roomId: chatRoomId, message: savedMsg });
+          stopTyping();
         }
       } catch (err) {
         console.error('Erro ao enviar mensagem privada:', err);
@@ -797,7 +940,11 @@ export default function Home() {
       const data = await res.json();
       if (data.success) {
         addToast(accept ? 'Solicitação aceita!' : 'Solicitação rejeitada.', accept ? 'success' : 'info');
-        loadFriends();
+        await loadFriends();
+        if (accept) {
+          const req = pendingReceived.find(r => r.friendId === friendId);
+          if (req) openProfile(req);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -1200,6 +1347,8 @@ export default function Home() {
               <div 
                 key={f.friendId}
                 onClick={() => {
+                  stopTyping();
+                  setTypingStatus({ friendId: null, isTyping: false });
                   setSelectedFriend(f);
                   setShowAdminPanel(false);
                 }}
@@ -1215,15 +1364,22 @@ export default function Home() {
                   minHeight: '52px'
                 }}
               >
-                <div style={{ position: 'relative' }}>
+                <div style={{ position: 'relative', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); openProfile(f); }}>
                   <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--bg-3)', border: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: 'bold' }}>
                     {f.username[0].toUpperCase()}
                   </div>
-                  <div style={{ position: 'absolute', bottom: 0, right: 0, width: '10px', height: '10px', borderRadius: '50%', background: 'var(--green)', border: '2px solid var(--bg-2)' }}></div>
+                  <div style={{ position: 'absolute', bottom: 0, right: 0, width: '10px', height: '10px', borderRadius: '50%', background: onlineUsers[f.friendId] ? 'var(--green)' : 'var(--bg-3)', border: '2px solid var(--bg-2)' }}></div>
                 </div>
-                <div>
+                <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--text)' }}>{f.username}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>{f.customId}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.customId}</span>
+                    {((f.unreadCount || 0) + (localUnread[f.friendId] || 0)) > 0 && (
+                      <span style={{ background: 'var(--gold)', color: '#111', fontSize: '9px', fontWeight: '700', borderRadius: '8px', padding: '1px 6px', flexShrink: 0 }}>
+                        {(f.unreadCount || 0) + (localUnread[f.friendId] || 0)}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             ))
@@ -1336,7 +1492,7 @@ export default function Home() {
                   </button>
                 )}
                 
-                <div style={{ width: isMobile ? '30px' : '36px', height: isMobile ? '30px' : '36px', borderRadius: '50%', background: 'var(--gold-soft)', border: '1px solid var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: 'var(--gold)', flexShrink: 0 }}>
+                <div style={{ width: isMobile ? '30px' : '36px', height: isMobile ? '30px' : '36px', borderRadius: '50%', background: 'var(--gold-soft)', border: '1px solid var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: 'var(--gold)', flexShrink: 0, cursor: inRandomChat ? 'default' : 'pointer' }} onClick={() => { if (!inRandomChat) openProfile(selectedFriend); }}>
                   {inRandomChat ? '?' : selectedFriend.username[0].toUpperCase()}
                 </div>
                 <div style={{ minWidth: 0 }}>
@@ -1344,7 +1500,11 @@ export default function Home() {
                     {inRandomChat ? `Parceiro (${randomPartner?.country})` : selectedFriend.username}
                   </h4>
                   <span style={{ fontSize: '10px', color: 'var(--muted)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {inRandomChat ? `Filtro: ${randomPartner?.gender === 'male' ? 'Homem' : 'Mulher'}` : selectedFriend.customId}
+                    {inRandomChat
+                      ? `Filtro: ${randomPartner?.gender === 'male' ? 'Homem' : 'Mulher'}`
+                      : typingStatus.isTyping && typingStatus.friendId === selectedFriend.friendId
+                        ? <span style={{ color: 'var(--gold)' }}>digitando...</span>
+                        : selectedFriend.customId}
                   </span>
                 </div>
               </div>
@@ -1530,6 +1690,11 @@ export default function Home() {
                       padding: '0 4px'
                     }}>
                       <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      {isMe && selectedFriend && (
+                        msg.readAt
+                          ? <CheckCheck size={11} style={{ color: 'var(--gold)' }} title="Visto" />
+                          : <Check size={11} style={{ color: 'var(--muted)' }} title="Enviado" />
+                      )}
                       <button onClick={() => setReplyingTo(msg)} style={{ color: 'var(--muted)', border: 'none', background: 'none' }}>Resp</button>
                       <button onClick={() => handleLikeMessage(msg.id)} style={{ color: liked ? 'var(--gold)' : 'var(--muted)', border: 'none', background: 'none' }}>
                         {liked ? 'Descurtir' : 'Curtir'}
@@ -1558,7 +1723,8 @@ export default function Home() {
                   type="text" 
                   placeholder="Escreva..." 
                   value={messageText}
-                  onChange={e => setMessageText(e.target.value)}
+                  onChange={e => { setMessageText(e.target.value); handleTypingChange(); }}
+                  onBlur={stopTyping}
                   style={{ flex: 1, padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px', fontSize: '14px' }}
                 />
                 <button type="submit" className="btn-primary" style={{ padding: isMobile ? '8px 12px' : '10px 14px', minHeight: isMobile ? '36px' : '40px' }}>
@@ -1699,6 +1865,44 @@ export default function Home() {
             <button onClick={rejectIncomingCall} className="btn-secondary" style={{ flex: 1, padding: '6px', fontSize: '12px', background: 'var(--red)', color: '#fff', border: 'none', minHeight: '34px' }}>
               Rejeitar
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* 4.5 MODAL DE PERFIL */}
+      {(profileLoading || profileUser || profileError) && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div className="glass-card animate-slide-in" style={{ maxWidth: '360px', width: '100%', border: '1px solid var(--line)', padding: '20px', textAlign: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={() => { setProfileUser(null); setProfileError(''); }} style={{ color: 'var(--muted)', background: 'none', border: 'none', padding: '4px' }}>
+                <X size={18} />
+              </button>
+            </div>
+            {profileLoading ? (
+              <p style={{ color: 'var(--muted)', fontSize: '13px', padding: '24px 0' }}>Carregando perfil...</p>
+            ) : profileError ? (
+              <p style={{ color: 'var(--red)', fontSize: '13px', padding: '24px 0' }}>{profileError}</p>
+            ) : profileUser && (
+              <>
+                <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: 'var(--gold-soft)', border: '1px solid var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', fontWeight: 'bold', color: 'var(--gold)', margin: '0 auto 12px' }}>
+                  {profileUser.username[0].toUpperCase()}
+                </div>
+                <h3 style={{ fontSize: '18px', color: 'var(--text)' }}>{profileUser.username}</h3>
+                <p style={{ fontSize: '12px', color: 'var(--gold)', fontFamily: 'var(--font-mono)', marginBottom: '12px' }}>{profileUser.customId}</p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px', color: 'var(--muted)', marginBottom: '16px' }}>
+                  <span><MapPin size={12} style={{ verticalAlign: '-2px', marginRight: '4px' }} /> {profileUser.country || 'Desconhecido'}</span>
+                  <span>Gênero: {profileUser.gender === 'male' ? 'Masculino' : profileUser.gender === 'female' ? 'Feminino' : 'Outro'}</span>
+                  <span style={{ color: onlineUsers[profileUser.id] ? 'var(--green)' : 'var(--muted)' }}>
+                    {onlineUsers[profileUser.id] ? 'Online' : 'Offline'}
+                  </span>
+                </div>
+
+                <button className="btn-primary" onClick={startChatFromProfile} style={{ width: '100%', justifyContent: 'center', minHeight: '40px' }}>
+                  <MessageSquare size={14} /> Conversar
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
