@@ -290,7 +290,19 @@ app.prepare().then(() => {
     socket.on('send_friend_msg', (data) => {
       // data: { roomId, message: { id, senderId, receiverId, content, parentMessageId, parentMessageContent } }
       const { roomId, message } = data;
+      if (!roomId || !message) return;
       socket.to(roomId).emit('receive_friend_msg', message);
+      // Se o destinatário não estiver na sala (ex: na sidebar), entrega direta
+      // para que a mensagem chegue em tempo real, sem recarregar a página
+      const receiverId = message.receiverId;
+      if (receiverId) {
+        const members = io.sockets.adapter.rooms.get(roomId);
+        for (const [id, sock] of io.sockets.sockets) {
+          if (socketUsers[id] === receiverId && (!members || !members.has(id))) {
+            sock.emit('receive_friend_msg', message);
+          }
+        }
+      }
     });
 
     socket.on('friend_typing', (data) => {
@@ -300,9 +312,19 @@ app.prepare().then(() => {
     });
 
     socket.on('friend_msgs_read', (data) => {
-      // data: { roomId, readerId }
-      const { roomId, readerId } = data;
+      // data: { roomId, readerId, friendId (remetente das mensagens lidas) }
+      const { roomId, readerId, friendId } = data;
+      if (!roomId || !readerId) return;
       socket.to(roomId).emit('friend_msgs_read', { readerId });
+      // Entrega direta ao remetente caso ele não esteja na sala
+      if (friendId) {
+        const members = io.sockets.adapter.rooms.get(roomId);
+        for (const [id, sock] of io.sockets.sockets) {
+          if (socketUsers[id] === friendId && (!members || !members.has(id))) {
+            sock.emit('friend_msgs_read', { readerId });
+          }
+        }
+      }
     });
 
     socket.on('like_friend_msg', (data) => {

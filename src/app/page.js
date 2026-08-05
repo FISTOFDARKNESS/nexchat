@@ -247,7 +247,7 @@ export default function Home() {
       }
       const sortedIds = [user.id, friendId].sort();
       const chatRoomId = `friend_chat_${sortedIds[0]}_${sortedIds[1]}`;
-      socket?.emit('friend_msgs_read', { roomId: chatRoomId, readerId: user.id });
+      socket?.emit('friend_msgs_read', { roomId: chatRoomId, readerId: user.id, friendId });
     } catch (err) {
       console.error(err);
     }
@@ -394,13 +394,17 @@ export default function Home() {
   }, []);
 
   // --- WebRTC signaling logic ---
-  const initWebRTC = useCallback(async (roomId, role) => {
+  const initWebRTC = useCallback(async (roomId, role, isAudioOnly = false) => {
     try {
       peerConnectionRef.current = new RTCPeerConnection(rtcConfig);
 
       // Adiciona o stream local
       if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(track => {
+        // Em chamada de áudio envia apenas o áudio; em vídeo envia áudio + vídeo
+        const tracks = isAudioOnly
+          ? localStreamRef.current.getAudioTracks()
+          : localStreamRef.current.getTracks();
+        tracks.forEach(track => {
           peerConnectionRef.current.addTrack(track, localStreamRef.current);
         });
       }
@@ -991,7 +995,7 @@ export default function Home() {
       setCallState('connected');
       addToast('Chamada conectada!', 'success');
       if (useMediaRef.current) {
-        await initWebRTC(callRoomId, 'caller');
+        await initWebRTC(callRoomId, 'caller', type === 'audio');
       }
     };
 
@@ -1027,7 +1031,7 @@ export default function Home() {
 
     socket.emit('accept_friend_call', { callRoomId });
     if (useMedia) {
-      await initWebRTC(callRoomId, 'receiver');
+      await initWebRTC(callRoomId, 'receiver', incomingCall.type === 'audio');
     }
   };
 
@@ -1554,8 +1558,23 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Indicador de Chamada de Áudio (sem tela de vídeo) */}
+            {callState === 'connected' && callType === 'audio' && (
+              <div style={{ height: isMobile ? '56px' : '64px', background: 'var(--bg-2)', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', flexShrink: 0 }}>
+                <span style={{ fontSize: '13px', color: 'var(--gold)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Phone size={14} /> Em chamada de áudio...
+                </span>
+                <button onClick={toggleAudio} title="Mudo" style={{ padding: '8px', borderRadius: '50%', background: 'var(--bg-3)', color: '#fff', border: '1px solid var(--line)', minHeight: isMobile ? '32px' : '36px' }}>
+                  {audioEnabled ? <Mic size={12} /> : <MicOff size={12} />}
+                </button>
+                <button onClick={endCall} style={{ padding: '6px 12px', borderRadius: '4px', background: 'var(--red)', color: '#fff', fontSize: '11px', border: 'none', minHeight: isMobile ? '32px' : '36px' }}>
+                  Encerrar
+                </button>
+              </div>
+            )}
+
             {/* Video Box (WebRTC P2P com layout responsivo mobile corrigido) */}
-            {((inRandomChat && matchMode === 'video') || callState === 'connected') && (
+            {((inRandomChat && matchMode === 'video') || (callState === 'connected' && callType === 'video')) && (
               <div 
                 style={{ 
                   height: isMobile ? '180px' : '280px', 
