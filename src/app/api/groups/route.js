@@ -32,8 +32,12 @@ export async function GET(req) {
         [groupId]
       );
       const messages = await sql(
-        `SELECT gm.id, gm."groupId", gm."senderId", gm.content, gm."createdAt", u.username as "senderName"
-         FROM "GroupMessage" gm JOIN "User" u ON u.id = gm."senderId"
+        `SELECT gm.id, gm."groupId", gm."senderId", gm.content, gm."editedAt", gm."createdAt", gm."attachmentId",
+                f.mime as "attachMime", f.filename as "attachFilename", f.size as "attachSize", f."viewOnce" as "attachViewOnce",
+                u.username as "senderName"
+         FROM "GroupMessage" gm
+         LEFT JOIN "File" f ON f.id = gm."attachmentId"
+         JOIN "User" u ON u.id = gm."senderId"
          WHERE gm."groupId" = $1 ORDER BY gm."createdAt" ASC`,
         [groupId]
       );
@@ -137,12 +141,12 @@ export async function POST(req) {
 
     // 4. ENVIAR MENSAGEM NO GRUPO
     if (action === 'send') {
-      const { groupId, content } = body;
-      if (!groupId || !content) {
-        return NextResponse.json({ error: 'groupId e content são obrigatórios' }, { status: 400 });
+      const { groupId, content, attachmentId } = body;
+      if (!groupId || (!content && !attachmentId)) {
+        return NextResponse.json({ error: 'groupId e content/attachment são obrigatórios' }, { status: 400 });
       }
-      const cleanContent = DOMPurify.sanitize(content.trim());
-      if (!cleanContent) {
+      const cleanContent = content ? DOMPurify.sanitize(content.trim()) : '';
+      if (!cleanContent && !attachmentId) {
         return NextResponse.json({ error: 'Mensagem vazia após sanitização' }, { status: 400 });
       }
       const membership = await sql(
@@ -152,16 +156,36 @@ export async function POST(req) {
       if (membership.length === 0) {
         return NextResponse.json({ error: 'Você não é membro deste grupo' }, { status: 403 });
       }
+      let attachId = null;
+      if (attachmentId) {
+        const f = await sql('SELECT * FROM "File" WHERE id = $1 AND "ownerId" = $2 LIMIT 1', [attachmentId, userId]);
+        if (f.length === 0) {
+          return NextResponse.json({ error: 'Arquivo não encontrado' }, { status: 400 });
+        }
+        attachId = attachmentId;
+      }
       const result = await sql(
-        `INSERT INTO "GroupMessage" ("groupId", "senderId", content) VALUES ($1, $2, $3) RETURNING *`,
-        [groupId, userId, cleanContent]
+        `INSERT INTO "GroupMessage" ("groupId", "senderId", content, "attachmentId") VALUES ($1, $2, $3, $4) RETURNING *`,
+        [groupId, userId, cleanContent, attachId]
       );
       const msg = result[0];
       const sender = await sql(
         `SELECT username FROM "User" WHERE id = $1 LIMIT 1`,
         [userId]
       );
-      return NextResponse.json({ success: true, message: { ...msg, senderName: sender[0]?.username || 'Usuário' } });
+      let attach = null;
+      if (attachId) {
+        const f = await sql('SELECT id, filename, mime, size, "viewOnce" FROM "File" WHERE id = $1 LIMIT 1', [attachId]);
+        if (f.length > 0) attach = f[0];
+      }
+      return NextResponse.json({
+        success: true,
+        message: {
+          ...msg,
+          senderName: sender[0]?.username || 'Usuário',
+          attach: attach ? { ...attach, url: `/files/${attach.id}` } : null
+        }
+      });
     }
 
     // 5. MARCAR GRUPO COMO LIDO

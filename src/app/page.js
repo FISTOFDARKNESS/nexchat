@@ -6,7 +6,7 @@ import {
   Video, Phone, UserPlus, Send, Heart, Smile, Shield, Flag, X, 
   MessageSquare, LogOut, MapPin, User, Users, Check, Trash, ShieldAlert,
   Moon, CheckSquare, Settings, AlertCircle, VolumeX, Mic, MicOff, VideoOff, Play,
-  Plus, CheckCircle, Clock, Info, ChevronLeft, SkipForward, CheckCheck
+  Plus, CheckCircle, Clock, Info, ChevronLeft, SkipForward, CheckCheck, FileText, Paperclip, Eye
 } from 'lucide-react';
 
 let socket;
@@ -18,6 +18,50 @@ function formatDuration(secs) {
   const m = Math.floor(secs / 60);
   const s = secs % 60;
   return `(${m}:${String(s).padStart(2, '0')})`;
+}
+
+function formatFileSize(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// Preview de mídia dentro da mensagem
+function MediaPreview({ msg }) {
+  const mime = msg.attach?.mime || msg.attachMime;
+  const url = msg.attach?.url || (msg.attachmentId ? `/files/${msg.attachmentId}` : null);
+  const viewOnce = msg.attach?.viewOnce || msg.attachViewOnce;
+  const name = msg.attach?.filename || msg.attachFilename;
+  if (!url) return null;
+
+  let preview = null;
+  if (mime && mime.startsWith('image/')) {
+    preview = <img src={url} alt={name || 'imagem'} style={{ maxWidth: '100%', maxHeight: '260px', borderRadius: '10px', display: 'block' }} />;
+  } else if (mime && mime.startsWith('video/')) {
+    preview = <video src={url} controls style={{ maxWidth: '100%', maxHeight: '260px', borderRadius: '10px', display: 'block' }} />;
+  } else if (mime && mime.startsWith('audio/')) {
+    preview = <audio src={url} controls style={{ width: '220px', maxWidth: '100%' }} />;
+  } else {
+    preview = (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', color: 'var(--text)' }}>
+        <FileText size={14} style={{ color: 'var(--gold)' }} />
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '160px' }}>{name || 'Arquivo'}</span>
+        <span style={{ color: 'var(--muted)', fontSize: '10px' }}>{formatFileSize(msg.attach?.size || msg.attachSize)}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ position: 'relative', marginBottom: msg.content ? '6px' : 0 }}>
+      {preview}
+      {viewOnce && (
+        <span style={{ position: 'absolute', top: '6px', right: '6px', background: 'rgba(0,0,0,0.75)', color: 'var(--gold)', fontSize: '9px', fontWeight: '700', padding: '3px 8px', borderRadius: '10px', letterSpacing: '0.5px' }}>
+          VISUALIZAÇÃO ÚNICA
+        </span>
+      )}
+    </div>
+  );
 }
 
 function Avatar({ url, name, size = 36, fontSize, border = '1px solid var(--line)', bg = 'var(--bg-3)', color }) {
@@ -203,6 +247,12 @@ export default function Home() {
 
   // --- Emoji picker ---
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
+  // --- Anexos / mídia ---
+  const [attachment, setAttachment] = useState(null); // File selecionado
+  const [viewOnce, setViewOnce] = useState(false);
+  const [sendingMedia, setSendingMedia] = useState(false);
+  const fileInputRef = useRef(null);
 
   // --- Cronômetro de chamada ---
   const callStartedAtRef = useRef(null);
@@ -1210,6 +1260,89 @@ export default function Home() {
       }
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  // --- Anexos: selecionar/validar/enviar ---
+  const handleAttachmentSelect = (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    const isImage = file.type.startsWith('image/');
+    const isVideo = file.type.startsWith('video/');
+    const isAudio = file.type.startsWith('audio/');
+    if (!isImage && !isVideo && !isAudio) {
+      addToast('Envie apenas imagens, vídeos ou áudios.', 'error');
+      return;
+    }
+    const max = isImage ? 5 * 1024 * 1024 : 10 * 1024 * 1024;
+    if (file.size > max) {
+      addToast(`Arquivo muito grande (máx ${Math.round(max / 1024 / 1024)} MB).`, 'error');
+      return;
+    }
+    setAttachment(file);
+    setViewOnce(false);
+  };
+
+  const clearAttachment = () => {
+    setAttachment(null);
+    setViewOnce(false);
+  };
+
+  const sendMediaMessage = async () => {
+    if (!attachment || sendingMedia) return;
+    setSendingMedia(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', attachment);
+      fd.append('purpose', 'media');
+      fd.append('viewOnce', viewOnce ? 'true' : 'false');
+      const up = await authedFetch('/api/upload', { method: 'POST', body: fd });
+      const upData = await up.json();
+      if (!upData.success) {
+        addToast(upData.error || 'Erro no upload.', 'error');
+        return;
+      }
+      const caption = messageText.trim();
+      if (selectedGroup) {
+        const res = await authedFetch('/api/groups', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'send', groupId: selectedGroup.id, content: caption, attachmentId: upData.file.id })
+        });
+        const data = await res.json();
+        if (data.success) {
+          socket.emit('send_group_msg', { groupId: selectedGroup.id, message: data.message });
+          setMessages(prev => [...prev, data.message]);
+          clearAttachment();
+          setMessageText('');
+        } else {
+          addToast(data.error || 'Erro ao enviar mídia no grupo.', 'warning');
+        }
+      } else if (selectedFriend) {
+        const res = await authedFetch('/api/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'send', receiverId: selectedFriend.friendId, content: caption, attachmentId: upData.file.id })
+        });
+        const data = await res.json();
+        if (data.success) {
+          setMessages(prev => [...prev, data.message]);
+          const sortedIds = [user.id, selectedFriend.friendId].sort();
+          const chatRoomId = `friend_chat_${sortedIds[0]}_${sortedIds[1]}`;
+          socket.emit('send_friend_msg', { roomId: chatRoomId, message: data.message });
+          clearAttachment();
+          setMessageText('');
+          stopTyping();
+        } else {
+          addToast(data.error || 'Erro ao enviar mídia.', 'warning');
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      addToast('Erro ao enviar mídia.', 'error');
+    } finally {
+      setSendingMedia(false);
     }
   };
 
@@ -2359,15 +2492,19 @@ export default function Home() {
                         background: isMe ? 'var(--gold-soft)' : 'var(--bg-3)', 
                         border: isMe ? '1px solid var(--gold)' : '1px solid var(--line)', 
                         color: isMe ? '#fff' : 'var(--text)', 
-                        padding: '8px 12px', 
+                        padding: msg.attachmentId ? '6px 6px 8px 6px' : '8px 12px', 
                         borderRadius: isMe ? '14px 14px 2px 14px' : '14px 14px 14px 2px',
                         position: 'relative'
                       }}>
-                        <p style={{ fontSize: '13px', lineHeight: '1.4', wordBreak: 'break-word' }}>{msg.content}
-                          {msg.editedAt && (
-                            <span style={{ fontSize: '9px', color: 'var(--muted)', fontStyle: 'italic', marginLeft: '6px' }}>editada</span>
-                          )}
-                        </p>
+                        {msg.attachmentId && <MediaPreview msg={msg} />}
+                        {msg.content && (
+                          <p style={{ fontSize: '13px', lineHeight: '1.4', wordBreak: 'break-word', padding: msg.attachmentId ? '2px 6px 0' : 0 }}>
+                            {msg.content}
+                            {msg.editedAt && (
+                              <span style={{ fontSize: '9px', color: 'var(--muted)', fontStyle: 'italic', marginLeft: '6px' }}>editada</span>
+                            )}
+                          </p>
+                        )}
                         
                         {msg.likedBy.length > 0 && (
                           <div style={{ 
@@ -2423,7 +2560,7 @@ export default function Home() {
             </div>
 
             {/* Input Bar */}
-            <form onSubmit={selectedGroup ? sendGroupMessage : handleSendMessage} style={{ padding: isMobile ? '8px' : '12px', background: 'var(--bg-2)', borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0 }}>
+            <form onSubmit={(e) => { e.preventDefault(); if (attachment) { sendMediaMessage(); } else if (selectedGroup) { sendGroupMessage(e); } else { handleSendMessage(e); } }} style={{ padding: isMobile ? '8px' : '12px', background: 'var(--bg-2)', borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0 }}>
               {replyingTo && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-3)', borderLeft: '3px solid var(--gold)', padding: '6px 12px', borderRadius: '4px' }}>
                   <div style={{ fontSize: '11px', minWidth: 0 }}>
@@ -2455,20 +2592,40 @@ export default function Home() {
                 </div>
               )}
 
+              {attachment && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-3)', border: '1px solid var(--gold)', padding: '6px 12px', borderRadius: '8px' }}>
+                  {attachment.type.startsWith('image/') ? <Eye size={14} style={{ color: 'var(--gold)' }} /> : attachment.type.startsWith('video/') ? <Video size={14} style={{ color: 'var(--gold)' }} /> : <FileText size={14} style={{ color: 'var(--gold)' }} />}
+                  <span style={{ fontSize: '12px', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{attachment.name}</span>
+                  <span style={{ fontSize: '10px', color: 'var(--muted)' }}>{formatFileSize(attachment.size)}</span>
+                  {selectedFriend && !selectedGroup && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: viewOnce ? 'var(--gold)' : 'var(--muted)', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={viewOnce} onChange={e => setViewOnce(e.target.checked)} style={{ accentColor: 'var(--gold)' }} />
+                      Visualização única
+                    </label>
+                  )}
+                  {viewOnce && <span style={{ fontSize: '9px', color: 'var(--amber)', fontWeight: '700' }}>some após visto</span>}
+                  <button type="button" onClick={clearAttachment} style={{ color: 'var(--red)', background: 'none', border: 'none', padding: '4px' }}><X size={14} /></button>
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: '6px' }}>
+                <input type="file" ref={fileInputRef} accept="image/*,video/*,audio/*" style={{ display: 'none' }} onChange={handleAttachmentSelect} />
+                <button type="button" onClick={() => fileInputRef.current && fileInputRef.current.click()} title="Enviar foto/vídeo/áudio" style={{ color: attachment ? 'var(--gold)' : 'var(--muted)', padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px' }}>
+                  <Paperclip size={16} />
+                </button>
                 <button type="button" onClick={() => setShowEmojiPicker(v => !v)} title="Emojis" style={{ color: showEmojiPicker ? 'var(--gold)' : 'var(--muted)', padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px' }}>
                   <Smile size={16} />
                 </button>
                 <input 
                   type="text" 
-                  placeholder="Escreva..." 
+                  placeholder={attachment ? 'Legenda (opcional)...' : "Escreva..."} 
                   value={messageText}
                   onChange={e => { setMessageText(e.target.value); if (!selectedGroup) handleTypingChange(); }}
                   onBlur={() => { if (!selectedGroup) stopTyping(); }}
                   style={{ flex: 1, padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px', fontSize: '14px' }}
                 />
-                <button type="submit" className="btn-primary" style={{ padding: isMobile ? '8px 12px' : '10px 14px', minHeight: isMobile ? '36px' : '40px' }}>
-                  <Send size={14} />
+                <button type="submit" className="btn-primary" disabled={sendingMedia} style={{ padding: isMobile ? '8px 12px' : '10px 14px', minHeight: isMobile ? '36px' : '40px', opacity: sendingMedia ? 0.6 : 1 }}>
+                  {sendingMedia ? <Clock size={14} /> : attachment ? <Send size={14} /> : <Send size={14} />}
                 </button>
                 {inRandomChat && matchMode === 'text' && (
                   <button type="button" className="btn-primary animate-pulse-glow" onClick={skipRandomMatch} title="Pular pessoa" style={{ padding: isMobile ? '8px 12px' : '10px 14px', minHeight: isMobile ? '36px' : '40px' }}>

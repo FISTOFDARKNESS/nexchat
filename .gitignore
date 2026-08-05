@@ -42,3 +42,5 @@ next-env.d.ts
 
 uploads/
 
+server.log
+server-err.log

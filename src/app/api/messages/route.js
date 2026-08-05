@@ -22,6 +22,7 @@ export async function GET(req) {
     const messages = await sql(
       `SELECT m.id, m."senderId", m."receiverId", m.content, m.type, m."parentMessageId", m."createdAt", m."readAt",
               m."editedAt", m."durationSeconds", m."attachmentId",
+              f.mime as "attachMime", f.filename as "attachFilename", f.size as "attachSize", f."viewOnce" as "attachViewOnce",
               pm.content as "parentContent",
               COALESCE(
                 (SELECT json_agg(ml."userId") 
@@ -30,6 +31,7 @@ export async function GET(req) {
                 '[]'::json
               ) as "likedBy"
        FROM "DirectMessage" m
+       LEFT JOIN "File" f ON f.id = m."attachmentId"
        LEFT JOIN "DirectMessage" pm ON pm.id = m."parentMessageId"
        WHERE (m."senderId" = $1 AND m."receiverId" = $2)
           OR (m."senderId" = $2 AND m."receiverId" = $1)
@@ -59,12 +61,12 @@ export async function POST(req) {
     const userId = auth.id;
 
     const body = await req.json();
-    const { action, receiverId, content, parentMessageId, messageId } = body;
+    const { action, receiverId, content, parentMessageId, messageId, attachmentId } = body;
 
     // 1. SALVAR NOVA MENSAGEM (SEND)
     if (action === 'send') {
-      if (!receiverId || !content) {
-        return NextResponse.json({ error: 'receiverId e content são obrigatórios' }, { status: 400 });
+      if (!receiverId || (!content && !attachmentId)) {
+        return NextResponse.json({ error: 'receiverId e content/attachment são obrigatórios' }, { status: 400 });
       }
       // Bloqueado (qualquer direção) não pode enviar mensagens
       const blocked = await sql(
@@ -76,19 +78,28 @@ export async function POST(req) {
         return NextResponse.json({ error: 'Não é possível enviar mensagem para este usuário' }, { status: 403 });
       }
 
-      // Sanitizar conteúdo da mensagem contra XSS
-      const cleanContent = DOMPurify.sanitize(content.trim());
+      // Valida o anexo (se houver): deve pertencer ao remetente
+      let attachId = null;
+      if (attachmentId) {
+        const f = await sql('SELECT * FROM "File" WHERE id = $1 AND "ownerId" = $2 LIMIT 1', [attachmentId, userId]);
+        if (f.length === 0) {
+          return NextResponse.json({ error: 'Arquivo não encontrado' }, { status: 400 });
+        }
+        attachId = attachmentId;
+      }
 
-      if (cleanContent.length === 0) {
+      // Sanitizar conteúdo da mensagem contra XSS (legenda)
+      const cleanContent = content ? DOMPurify.sanitize(content.trim()) : '';
+      if (!cleanContent && !attachId) {
         return NextResponse.json({ error: 'Mensagem vazia após sanitização' }, { status: 400 });
       }
 
       // Insere no banco
       const result = await sql(
-        `INSERT INTO "DirectMessage" ("senderId", "receiverId", content, "parentMessageId")
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO "DirectMessage" ("senderId", "receiverId", content, "parentMessageId", "attachmentId")
+         VALUES ($1, $2, $3, $4, $5)
          RETURNING *`,
-        [userId, receiverId, cleanContent, parentMessageId || null]
+        [userId, receiverId, cleanContent, parentMessageId || null, attachId]
       );
 
       const msg = result[0];
@@ -102,12 +113,20 @@ export async function POST(req) {
         }
       }
 
+      // Dados do anexo para renderização no cliente
+      let attach = null;
+      if (attachId) {
+        const f = await sql('SELECT id, filename, mime, size, "viewOnce" FROM "File" WHERE id = $1 LIMIT 1', [attachId]);
+        if (f.length > 0) attach = f[0];
+      }
+
       return NextResponse.json({
         success: true,
         message: {
           ...msg,
           parentContent,
-          likedBy: []
+          likedBy: [],
+          attach: attach ? { ...attach, url: `/files/${attach.id}` } : null
         }
       });
     }
