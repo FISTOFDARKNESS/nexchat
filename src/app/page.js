@@ -162,14 +162,25 @@ export default function Home() {
   const typingTimeoutRef = useRef(null);
   const typingEmittedRef = useRef(false);
 
+  // --- Grupos ---
+  const [groupsList, setGroupsList] = useState([]);
+  const [selectedGroup, setSelectedGroup] = useState(null);
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [groupMembers, setGroupMembers] = useState([]);
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const [showAddToCallModal, setShowAddToCallModal] = useState(false);
+
   // --- Referências de Elementos e WebRTC ---
   const localVideoRef = useRef(null);
-  const remoteVideoRef = useRef(null);
-  const remoteAudioRef = useRef(null); // Áudio oculto para chamadas sem vídeo
+  const remoteVideoElsRef = useRef({}); // peerId -> <video>
+  const remoteAudioElsRef = useRef({}); // peerId -> <audio> (chamadas sem vídeo)
   const messagesEndRef = useRef(null);
-  const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
-  const remoteStreamRef = useRef(null);
+
+  // WebRTC mesh: um RTCPeerConnection por participante (peerId -> pc)
+  const pcsRef = useRef({});
+  const [remoteStreams, setRemoteStreams] = useState({}); // peerId -> MediaStream
 
   // --- Refs com os valores mais recentes (para handlers do socket) ---
   const matchModeRef = useRef(matchMode);
@@ -177,7 +188,9 @@ export default function Home() {
   const randomRoomIdRef = useRef(randomRoomId);
   const activeCallRoomRef = useRef(activeCallRoom);
   const selectedFriendRef = useRef(selectedFriend);
+  const selectedGroupRef = useRef(selectedGroup);
   const callStateRef = useRef(callState);
+  const callTypeRef = useRef(callType);
   const inRandomChatRef = useRef(inRandomChat);
   const callListenersRef = useRef([]);
 
@@ -187,7 +200,9 @@ export default function Home() {
     randomRoomIdRef.current = randomRoomId;
     activeCallRoomRef.current = activeCallRoom;
     selectedFriendRef.current = selectedFriend;
+    selectedGroupRef.current = selectedGroup;
     callStateRef.current = callState;
+    callTypeRef.current = callType;
     inRandomChatRef.current = inRandomChat;
   });
   // --- Efeito: Auto-scroll no Chat ---
@@ -203,19 +218,21 @@ export default function Home() {
     }
   }, [inRandomChat, callState, matchMode, useMedia, activeCallRoom, activeView]);
 
+  // Reatribui streams remotos aos elementos (montam depois do ontrack)
   useEffect(() => {
-    if (remoteVideoRef.current && remoteStreamRef.current) {
-      remoteVideoRef.current.srcObject = remoteStreamRef.current;
-      remoteVideoRef.current.play().catch(e => console.log('Autoplay remote stream error:', e));
-    }
-  }, [inRandomChat, callState, matchMode, useMedia, activeCallRoom, activeView]);
-
-  useEffect(() => {
-    if (remoteAudioRef.current && remoteStreamRef.current) {
-      remoteAudioRef.current.srcObject = remoteStreamRef.current;
-      remoteAudioRef.current.play().catch(e => console.log('Autoplay remote audio error:', e));
-    }
-  }, [inRandomChat, callState, callType, matchMode, useMedia, activeCallRoom, activeView]);
+    Object.entries(remoteStreams).forEach(([peerId, stream]) => {
+      const v = remoteVideoElsRef.current[peerId];
+      if (v && v.srcObject !== stream) {
+        v.srcObject = stream;
+        v.play().catch(e => console.log('Autoplay remote stream error:', e));
+      }
+      const a = remoteAudioElsRef.current[peerId];
+      if (a && a.srcObject !== stream) {
+        a.srcObject = stream;
+        a.play().catch(e => console.log('Autoplay remote audio error:', e));
+      }
+    });
+  });
 
   // Carregar dados de amigos via API
   const loadFriends = useCallback(async () => {
@@ -283,6 +300,42 @@ export default function Home() {
     }
   }, []);
 
+  // --- Carregar lista de grupos ---
+  const loadGroups = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await authedFetch('/api/groups');
+      const data = await res.json();
+      if (data.success) {
+        setGroupsList(data.groups || []);
+      }
+    } catch (err) {
+      console.error('Erro ao buscar grupos:', err);
+    }
+  }, [user]);
+
+  // --- Registrar chamada no chat (registro fica salvo) ---
+  const logCall = useCallback(async (callType) => {
+    const friend = selectedFriendRef.current;
+    if (!friend || !user) return;
+    try {
+      const res = await authedFetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'call_log', receiverId: friend.friendId, callType })
+      });
+      const data = await res.json();
+      if (data.success && data.message) {
+        setMessages(prev => prev.some(m => m.id === data.message.id) ? prev : [...prev, data.message]);
+        const sortedIds = [user.id, friend.friendId].sort();
+        const chatRoomId = `friend_chat_${sortedIds[0]}_${sortedIds[1]}`;
+        socket?.emit('friend_call_logged', { roomId: chatRoomId, message: data.message });
+      }
+    } catch (err) {
+      console.error('Erro ao registrar chamada:', err);
+    }
+  }, [user]);
+
   // --- Iniciar conversa a partir do perfil ---
   const startChatFromProfile = () => {
     if (!profileUser) return;
@@ -293,6 +346,7 @@ export default function Home() {
       stopTyping();
       setTypingStatus({ friendId: null, isTyping: false });
       setSelectedFriend(f);
+      setSelectedGroup(null);
       setShowAdminPanel(false);
     } else {
       addToast('Este usuário não está na sua lista de amigos.', 'error');
@@ -401,62 +455,72 @@ export default function Home() {
     callListenersRef.current = [];
   }, []);
 
-  // --- WebRTC signaling logic ---
-  const initWebRTC = useCallback(async (roomId, role, isAudioOnly = false) => {
-    try {
-      peerConnectionRef.current = new RTCPeerConnection(rtcConfig);
-
-      // Adiciona o stream local
-      if (localStreamRef.current) {
-        // Em chamada de áudio envia apenas o áudio; em vídeo envia áudio + vídeo
-        const tracks = isAudioOnly
-          ? localStreamRef.current.getAudioTracks()
-          : localStreamRef.current.getTracks();
-        tracks.forEach(track => {
-          peerConnectionRef.current.addTrack(track, localStreamRef.current);
-        });
-      }
-
-      // Receber stream remoto
-      peerConnectionRef.current.ontrack = (event) => {
-        if (event.streams[0]) {
-          remoteStreamRef.current = event.streams[0];
-          // Em chamada de áudio não há <video>, então anexa ao <audio> oculto
-          const target = remoteVideoRef.current || remoteAudioRef.current;
-          if (target) {
-            target.srcObject = event.streams[0];
-            target.play().catch(e => console.log('Autoplay remote stream error:', e));
-          }
-        }
-      };
-
-      // Mandar ICE Candidates
-      peerConnectionRef.current.onicecandidate = (event) => {
-        if (event.candidate) {
-          socket.emit('webrtc_ice_candidate', { roomId, candidate: event.candidate });
-        }
-      };
-
-      if (role === 'caller') {
-        const offer = await peerConnectionRef.current.createOffer();
-        await peerConnectionRef.current.setLocalDescription(offer);
-        socket.emit('webrtc_offer', { roomId, offer });
-      }
-    } catch (err) {
-      console.error('Erro ao inicializar WebRTC:', err);
+  // --- WebRTC mesh: cria/reusa um RTCPeerConnection por participante ---
+  const cleanupPeer = useCallback((peerId) => {
+    const pc = pcsRef.current[peerId];
+    if (pc) {
+      pc.close();
+      delete pcsRef.current[peerId];
     }
+    setRemoteStreams(prev => {
+      if (!prev[peerId]) return prev;
+      const n = { ...prev };
+      delete n[peerId];
+      return n;
+    });
   }, []);
+
+  const getOrCreatePC = useCallback((peerId, roomId, role, isAudioOnly = false) => {
+    if (!peerId) return null;
+    if (pcsRef.current[peerId]) return pcsRef.current[peerId];
+
+    const pc = new RTCPeerConnection(rtcConfig);
+    pcsRef.current[peerId] = pc;
+
+    // Em chamada de áudio envia apenas o áudio; em vídeo envia áudio + vídeo
+    if (localStreamRef.current) {
+      const tracks = isAudioOnly
+        ? localStreamRef.current.getAudioTracks()
+        : localStreamRef.current.getTracks();
+      tracks.forEach(track => {
+        pc.addTrack(track, localStreamRef.current);
+      });
+    }
+
+    pc.ontrack = (event) => {
+      if (event.streams[0]) {
+        setRemoteStreams(prev => ({ ...prev, [peerId]: event.streams[0] }));
+      }
+    };
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit('webrtc_ice_candidate', { roomId, peerId, candidate: event.candidate });
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+        cleanupPeer(peerId);
+      }
+    };
+
+    if (role === 'caller') {
+      (async () => {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit('webrtc_offer', { roomId, peerId, offer });
+      })().catch(err => console.error('Erro ao criar oferta WebRTC:', err));
+    }
+
+    return pc;
+  }, [cleanupPeer]);
 
   const cleanupCall = useCallback(() => {
     removeCallListeners();
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close();
-      peerConnectionRef.current = null;
-    }
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = null;
-    }
-    remoteStreamRef.current = null;
+    Object.values(pcsRef.current).forEach(pc => pc.close());
+    pcsRef.current = {};
+    setRemoteStreams({});
     setCallState('idle');
     setActiveCallRoom(null);
   }, [removeCallListeners]);
@@ -491,7 +555,7 @@ export default function Home() {
 
       if (matchModeRef.current === 'video' && useMediaRef.current) {
         setQueueStatusText('Iniciando stream de vídeo...');
-        await initWebRTC(roomId, role);
+        getOrCreatePC(partner.userId, roomId, role, false);
       }
     });
 
@@ -537,26 +601,27 @@ export default function Home() {
     });
 
     socket.on('webrtc_offer', async (data) => {
+      const { roomId, offer, peerId } = data;
+      if (!peerId || !roomId) return;
       const rId = randomRoomIdRef.current || activeCallRoomRef.current;
-      if (!peerConnectionRef.current && rId) {
-        await initWebRTC(rId, 'receiver');
-      }
-      if (peerConnectionRef.current) {
-        try {
-          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.offer));
-          const answer = await peerConnectionRef.current.createAnswer();
-          await peerConnectionRef.current.setLocalDescription(answer);
-          socket.emit('webrtc_answer', { roomId: rId, answer });
-        } catch (err) {
-          console.error('Erro ao processar webrtc_offer:', err);
-        }
+      if (rId !== roomId) return;
+      const pc = getOrCreatePC(peerId, roomId, 'receiver', callTypeRef.current === 'audio');
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit('webrtc_answer', { roomId, peerId, answer });
+      } catch (err) {
+        console.error('Erro ao processar webrtc_offer:', err);
       }
     });
 
     socket.on('webrtc_answer', async (data) => {
-      if (peerConnectionRef.current) {
+      const { peerId, answer } = data;
+      const pc = peerId ? pcsRef.current[peerId] : null;
+      if (pc) {
         try {
-          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+          await pc.setRemoteDescription(new RTCSessionDescription(answer));
         } catch (err) {
           console.error('Erro ao processar webrtc_answer:', err);
         }
@@ -564,25 +629,60 @@ export default function Home() {
     });
 
     socket.on('webrtc_ice_candidate', async (data) => {
-      if (peerConnectionRef.current && data.candidate) {
+      const { peerId, candidate } = data;
+      const pc = peerId ? pcsRef.current[peerId] : null;
+      if (pc && candidate) {
         try {
-          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
         } catch (e) {
           console.error('Erro ao adicionar ICE Candidate:', e);
         }
       }
     });
 
+    // Novo participante entrou na chamada (cria PC receptor para ele)
+    socket.on('participant_joined', ({ userId }) => {
+      if (userId !== user.id && activeCallRoomRef.current) {
+        getOrCreatePC(userId, activeCallRoomRef.current, 'receiver', callTypeRef.current === 'audio');
+      }
+    });
+
+    // Lista de participantes enviada a quem acabou de aceitar (cria PCs chamadores)
+    socket.on('call_participants', ({ participants }) => {
+      const roomId = activeCallRoomRef.current;
+      if (!roomId) return;
+      participants.forEach(pid => {
+        if (pid !== user.id) {
+          getOrCreatePC(pid, roomId, 'caller', callTypeRef.current === 'audio');
+        }
+      });
+    });
+
     socket.on('receive_friend_msg', (msg) => {
       const activeFriend = selectedFriendRef.current;
       if (activeFriend && (msg.senderId === activeFriend.friendId || msg.receiverId === activeFriend.friendId)) {
-        setMessages(prev => [...prev, msg]);
+        setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
         if (msg.senderId === activeFriend.friendId) {
           markMessagesRead(activeFriend.friendId);
         }
       } else {
         addToast('Nova mensagem de amizade!', 'info');
         setLocalUnread(prev => ({ ...prev, [msg.senderId]: (prev[msg.senderId] || 0) + 1 }));
+      }
+    });
+
+    socket.on('friend_call_logged', (msg) => {
+      setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+    });
+
+    socket.on('receive_group_msg', (msg) => {
+      const activeGroup = selectedGroupRef.current;
+      if (activeGroup && msg.groupId === activeGroup.id) {
+        setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+      } else {
+        addToast('Nova mensagem em grupo!', 'info');
+        setGroupsList(prev => prev.map(g => g.id === msg.groupId ? { ...g, unreadCount: (g.unreadCount || 0) + 1 } : g));
+        loadGroups();
       }
     });
 
@@ -641,20 +741,25 @@ export default function Home() {
     });
 
     socket.on('friend_call_ended', () => {
+      if (callStateRef.current !== 'connected') return;
       addToast('Chamada encerrada pelo amigo.', 'warning');
+      const t = callTypeRef.current;
       cleanupCall();
+      logCall(t);
     });
 
     const queueLoad = setTimeout(loadFriends, 0);
+    const queueLoadGroups = setTimeout(loadGroups, 0);
 
     return () => {
       clearTimeout(queueLoad);
+      clearTimeout(queueLoadGroups);
       removeCallListeners();
       if (socket) {
         socket.disconnect();
       }
     };
-  }, [user, loadFriends, addToast, initWebRTC, cleanupCall, removeCallListeners, markMessagesRead]);
+  }, [user, loadFriends, addToast, getOrCreatePC, cleanupCall, removeCallListeners, markMessagesRead, logCall, loadGroups]);
 
   // --- Ações de Login ---
   const handleAuth = async (e) => {
@@ -726,6 +831,8 @@ export default function Home() {
     setFriendsList([]);
     setPendingReceived([]);
     setPendingSent([]);
+    setGroupsList([]);
+    setSelectedGroup(null);
     cleanupCall();
     if (socket) {
       socket.disconnect();
@@ -834,7 +941,10 @@ export default function Home() {
   // --- Apagar mensagem direta (apenas remetente) ---
   const handleDeleteMessage = async (msgId) => {
     if (!user || !selectedFriend) return;
-    if (!confirm('Apagar esta mensagem para todos?')) return;
+    const msg = messages.find(m => m.id === msgId);
+    if (msg && msg.type === 'call') {
+      if (!confirm('Apagar o registro desta chamada?')) return;
+    } else if (!confirm('Apagar esta mensagem para todos?')) return;
     try {
       const res = await authedFetch('/api/messages', {
         method: 'POST',
@@ -1033,7 +1143,7 @@ export default function Home() {
       setCallState('connected');
       addToast('Chamada conectada!', 'success');
       if (useMediaRef.current) {
-        await initWebRTC(callRoomId, 'caller', type === 'audio');
+        getOrCreatePC(selectedFriendRef.current.friendId, callRoomId, 'caller', type === 'audio');
       }
     };
 
@@ -1060,16 +1170,21 @@ export default function Home() {
 
   const acceptIncomingCall = async () => {
     if (!incomingCall) return;
-    const { callRoomId } = incomingCall;
-    
+    const { callRoomId, type } = incomingCall;
+
     setCallState('connected');
+    setCallType(type);
     setActiveCallRoom(callRoomId);
     setIncomingCall(null);
     setActiveView('chat');
 
     socket.emit('accept_friend_call', { callRoomId });
     if (useMedia) {
-      await initWebRTC(callRoomId, 'receiver', incomingCall.type === 'audio');
+      // O servidor responde com call_participants (lista de participantes já na sala);
+      // nele criamos os PCs chamadores. Em chamada de grupo não há peer para o host (só via eventos).
+      if (!incomingCall.isGroup) {
+        getOrCreatePC(incomingCall.callerId, callRoomId, 'caller', type === 'audio');
+      }
     }
   };
 
@@ -1082,11 +1197,143 @@ export default function Home() {
 
   const endCall = () => {
     const roomId = activeCallRoom;
+    const t = callType;
     if (roomId) {
       socket.emit('end_friend_call', { callRoomId: roomId });
     }
     cleanupCall();
     addToast('Chamada encerrada.', 'info');
+    logCall(t);
+  };
+
+  // --- Grupos ---
+  const selectGroup = async (groupId) => {
+    setSelectedFriend(null);
+    setMessages([]);
+    setActiveView('chat');
+    try {
+      const res = await authedFetch(`/api/groups?groupId=${groupId}`);
+      const data = await res.json();
+      if (data.success) {
+        const group = { ...data.group, members: data.members || [] };
+        setSelectedGroup(group);
+        setGroupsList(prev => prev.map(g => g.id === groupId ? { ...g, unreadCount: 0 } : g));
+        socket.emit('join_group_chat', { groupId });
+        if (data.messages?.length) {
+          setMessages(data.messages);
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao abrir grupo:', err);
+    }
+  };
+
+  // Entra/sai da sala do grupo conforme o chat ativo
+  useEffect(() => {
+    if (selectedGroup && socket) {
+      socket.emit('join_group_chat', { groupId: selectedGroup.id });
+      return () => {
+        socket.emit('leave_group_chat', { groupId: selectedGroup.id });
+      };
+    }
+  }, [selectedGroup, socket]);
+
+  // Abre a conversa com o amigo vinda de um grupo (via perfil)
+  const startChatFromGroupProfile = async (target) => {
+    const friend = friendsList.find(f => f.friendId === target.id) || friendsList.find(f => f.customId === target.customId);
+    if (friend) {
+      setSelectedGroup(null);
+      setSelectedFriend(friend);
+      setMessages([]);
+      setActiveView('chat');
+      loadMessages(friend.friendId);
+    } else {
+      addToast('Adicione este usuário como amigo para conversar.', 'warning');
+    }
+  };
+
+  const sendGroupMessage = async (e) => {
+    e.preventDefault();
+    if (!selectedGroup || !groupInput.trim()) return;
+    const content = groupInput.trim();
+    setGroupInput('');
+    try {
+      const res = await authedFetch('/api/groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'send', groupId: selectedGroup.id, content })
+      });
+      const data = await res.json();
+      if (data.success && data.message) {
+        socket.emit('send_group_msg', { groupId: selectedGroup.id, message: data.message });
+        setMessages(prev => [...prev, data.message]);
+      } else {
+        addToast(data.error || 'Erro ao enviar mensagem no grupo.', 'warning');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const createGroup = async (e) => {
+    e.preventDefault();
+    if (!groupName.trim()) return;
+    try {
+      const res = await authedFetch('/api/groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'create', name: groupName.trim(), memberIds: groupMembers })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShowCreateGroupModal(false);
+        setGroupName('');
+        setGroupMembers([]);
+        loadGroups();
+        addToast('Grupo criado!', 'success');
+      } else {
+        addToast(data.error || 'Erro ao criar grupo.', 'warning');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const addMemberToGroup = async (userId) => {
+    if (!selectedGroup) return;
+    try {
+      const res = await authedFetch('/api/groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'add_member', groupId: selectedGroup.id, userId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShowAddMemberModal(false);
+        addToast('Participante adicionado ao grupo.', 'success');
+        selectGroup(selectedGroup.id);
+      } else {
+        addToast(data.error || 'Erro ao adicionar participante.', 'warning');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // --- Adicionar amigo à chamada em andamento ---
+  const addToCall = async (friend) => {
+    if (!activeCallRoom) return;
+    setShowAddToCallModal(false);
+    socket.emit('add_friend_to_call', {
+      callRoomId: activeCallRoom,
+      friendUserId: friend.friendId,
+      inviterName: user.username
+    });
+    if (onlineUsers[friend.friendId]) {
+      addToast(`Convite de chamada enviado para ${friend.username}.`, 'info');
+    } else {
+      addToast(`${friend.username} está offline — receberá o convite ao entrar.`, 'info');
+    }
   };
 
   // --- Admin Logic ---
@@ -1392,6 +1639,7 @@ export default function Home() {
                   stopTyping();
                   setTypingStatus({ friendId: null, isTyping: false });
                   setSelectedFriend(f);
+                  setSelectedGroup(null);
                   setShowAdminPanel(false);
                 }}
                 className="friend-item-hover"
@@ -1419,6 +1667,58 @@ export default function Home() {
                     {((f.unreadCount || 0) + (localUnread[f.friendId] || 0)) > 0 && (
                       <span style={{ background: 'var(--gold)', color: '#111', fontSize: '9px', fontWeight: '700', borderRadius: '8px', padding: '1px 6px', flexShrink: 0 }}>
                         {(f.unreadCount || 0) + (localUnread[f.friendId] || 0)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Lista de Grupos (Discord style) */}
+        <div style={{ borderTop: '1px solid var(--line)', padding: '12px 0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', marginBottom: '8px' }}>
+            <span style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: '600' }}>
+              GRUPOS ({groupsList.length})
+            </span>
+            <button onClick={() => setShowCreateGroupModal(true)} title="Criar grupo" style={{ color: 'var(--gold)', padding: '4px', display: 'flex' }}>
+              <UserPlus size={15} />
+            </button>
+          </div>
+          {groupsList.length === 0 ? (
+            <p style={{ color: 'var(--muted)', fontSize: '12px', padding: '0 16px', fontStyle: 'italic' }}>Nenhum grupo ainda.</p>
+          ) : (
+            groupsList.map(g => (
+              <div
+                key={g.id}
+                onClick={() => {
+                  setSelectedFriend(null);
+                  setShowAdminPanel(false);
+                  selectGroup(g.id);
+                }}
+                className="friend-item-hover"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '12px 16px',
+                  cursor: 'pointer',
+                  background: selectedGroup?.id === g.id ? 'rgba(234, 200, 71, 0.08)' : 'transparent',
+                  borderLeft: selectedGroup?.id === g.id ? '3px solid var(--gold)' : '3px solid transparent',
+                  minHeight: '52px'
+                }}
+              >
+                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--gold-soft)', border: '1px solid var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Users size={15} style={{ color: 'var(--gold)' }} />
+                </div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.memberCount} participantes</span>
+                    {(g.unreadCount || 0) > 0 && (
+                      <span style={{ background: 'var(--gold)', color: '#111', fontSize: '9px', fontWeight: '700', borderRadius: '8px', padding: '1px 6px', flexShrink: 0 }}>
+                        {g.unreadCount}
                       </span>
                     )}
                   </div>
@@ -1508,7 +1808,7 @@ export default function Home() {
               )}
             </div>
           </div>
-        ) : selectedFriend || inRandomChat ? (
+        ) : selectedFriend || selectedGroup || inRandomChat ? (
           // SE ESTIVER CONECTADO NO CHAT COM ALGUÉM (FRIEND OU RANDOM)
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%' }} className="animate-fade-in">
             
@@ -1525,6 +1825,8 @@ export default function Home() {
                         }
                       } else {
                         setSelectedFriend(null);
+                        setSelectedGroup(null);
+                        setMessages([]);
                         setActiveView('sidebar');
                       }
                     }} 
@@ -1534,25 +1836,31 @@ export default function Home() {
                   </button>
                 )}
                 
-                <div style={{ width: isMobile ? '30px' : '36px', height: isMobile ? '30px' : '36px', borderRadius: '50%', background: 'var(--gold-soft)', border: '1px solid var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: 'var(--gold)', flexShrink: 0, cursor: inRandomChat ? 'default' : 'pointer' }} onClick={() => { if (!inRandomChat) openProfile(selectedFriend); }}>
-                  {inRandomChat ? '?' : selectedFriend.username[0].toUpperCase()}
+                <div style={{ width: isMobile ? '30px' : '36px', height: isMobile ? '30px' : '36px', borderRadius: '50%', background: 'var(--gold-soft)', border: '1px solid var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: 'var(--gold)', flexShrink: 0, cursor: selectedGroup ? 'default' : inRandomChat ? 'default' : 'pointer' }} onClick={() => { if (!inRandomChat && !selectedGroup) openProfile(selectedFriend); }}>
+                  {selectedGroup ? <Users size={isMobile ? 14 : 16} /> : inRandomChat ? '?' : selectedFriend.username[0].toUpperCase()}
                 </div>
                 <div style={{ minWidth: 0 }}>
                   <h4 style={{ fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {inRandomChat ? `Parceiro (${randomPartner?.country})` : selectedFriend.username}
+                    {selectedGroup ? selectedGroup.name : inRandomChat ? `Parceiro (${randomPartner?.country})` : selectedFriend.username}
                   </h4>
                   <span style={{ fontSize: '10px', color: 'var(--muted)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {inRandomChat
-                      ? `Filtro: ${randomPartner?.gender === 'male' ? 'Homem' : 'Mulher'}`
-                      : typingStatus.isTyping && typingStatus.friendId === selectedFriend.friendId
-                        ? <span style={{ color: 'var(--gold)' }}>digitando...</span>
-                        : selectedFriend.customId}
+                    {selectedGroup
+                      ? `${selectedGroup.members?.length || 0} participantes`
+                      : inRandomChat
+                        ? `Filtro: ${randomPartner?.gender === 'male' ? 'Homem' : 'Mulher'}`
+                        : typingStatus.isTyping && typingStatus.friendId === selectedFriend.friendId
+                          ? <span style={{ color: 'var(--gold)' }}>digitando...</span>
+                          : selectedFriend.customId}
                   </span>
                 </div>
               </div>
               
               <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '4px' : '6px' }}>
-                {inRandomChat ? (
+                {selectedGroup ? (
+                  <button className="btn-primary" onClick={() => setShowAddMemberModal(true)} title="Adicionar participante" style={{ padding: isMobile ? '6px 10px' : '8px 12px', minHeight: isMobile ? '32px' : '36px', fontSize: isMobile ? '11px' : '12px' }}>
+                    <UserPlus size={isMobile ? 13 : 15} /> {isMobile ? '' : 'Adicionar'}
+                  </button>
+                ) : inRandomChat ? (
                   <>
                     {/* Botão de Solicitação de Amizade */}
                     {randomFriendRequestStatus === 'none' && (
@@ -1598,11 +1906,24 @@ export default function Home() {
 
             {/* Indicador de Chamada de Áudio (sem tela de vídeo) */}
             {callState === 'connected' && callType === 'audio' && (
-              <div style={{ height: isMobile ? '56px' : '64px', background: 'var(--bg-2)', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', flexShrink: 0 }}>
-                <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
+              <div style={{ height: isMobile ? '56px' : '64px', background: 'var(--bg-2)', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', flexShrink: 0, flexWrap: 'wrap', padding: '0 8px' }}>
+                {Object.entries(remoteStreams).map(([peerId]) => (
+                  <audio
+                    key={peerId}
+                    ref={el => { remoteAudioElsRef.current[peerId] = el; }}
+                    autoPlay
+                    playsInline
+                    style={{ display: 'none' }}
+                  />
+                ))}
                 <span style={{ fontSize: '13px', color: 'var(--gold)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <Phone size={14} /> Em chamada de áudio...
                 </span>
+                {selectedFriend && (
+                  <button onClick={() => setShowAddToCallModal(true)} title="Adicionar à chamada" style={{ padding: '8px', borderRadius: '50%', background: 'var(--gold-soft)', color: 'var(--gold)', border: '1px solid var(--gold)', minHeight: isMobile ? '32px' : '36px' }}>
+                    <UserPlus size={13} />
+                  </button>
+                )}
                 <button onClick={toggleAudio} title="Mudo" style={{ padding: '8px', borderRadius: '50%', background: 'var(--bg-3)', color: '#fff', border: '1px solid var(--line)', minHeight: isMobile ? '32px' : '36px' }}>
                   {audioEnabled ? <Mic size={12} /> : <MicOff size={12} />}
                 </button>
@@ -1612,25 +1933,38 @@ export default function Home() {
               </div>
             )}
 
-            {/* Video Box (WebRTC P2P com layout responsivo mobile corrigido) */}
+            {/* Video Box (WebRTC P2P/mesh com layout responsivo mobile corrigido) */}
             {((inRandomChat && matchMode === 'video') || (callState === 'connected' && callType === 'video')) && (
               <div 
                 style={{ 
                   height: isMobile ? '180px' : '280px', 
                   background: '#000', 
                   display: 'flex', 
+                  flexWrap: 'wrap',
                   position: 'relative', 
                   borderBottom: '1px solid var(--line)',
                   flexShrink: 0
                 }}
               >
-                {/* Remoto (Fundo principal) */}
-                <video 
-                  ref={remoteVideoRef} 
-                  autoPlay 
-                  playsInline 
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', background: '#000' }} 
-                />
+                {/* Remotos (um por participante; em chamada em grupo vira grade) */}
+                {Object.entries(remoteStreams).map(([peerId], idx) => {
+                  const count = Object.keys(remoteStreams).length;
+                  return (
+                    <video
+                      key={peerId}
+                      ref={el => { remoteVideoElsRef.current[peerId] = el; }}
+                      autoPlay
+                      playsInline
+                      style={{
+                        width: count === 1 ? '100%' : count === 2 ? '50%' : '33.33%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        background: '#000',
+                        borderRight: idx < count - 1 ? '1px solid var(--line)' : 'none'
+                      }}
+                    />
+                  );
+                })}
                 
                 {/* Local Flutuante */}
                 {useMedia && (
@@ -1666,7 +2000,12 @@ export default function Home() {
                   <button onClick={toggleVideo} style={{ padding: '8px', borderRadius: '50%', background: 'rgba(0,0,0,0.7)', color: '#fff', border: '1px solid var(--line)' }}>
                     {videoEnabled ? <Video size={12} /> : <VideoOff size={12} />}
                   </button>
-                  {callState === 'connected' && (
+                  {callState === 'connected' && selectedFriend && (
+                    <button onClick={() => setShowAddToCallModal(true)} title="Adicionar à chamada" style={{ padding: '8px', borderRadius: '50%', background: 'rgba(0,0,0,0.7)', color: 'var(--gold)', border: '1px solid var(--gold)' }}>
+                      <UserPlus size={13} />
+                    </button>
+                  )}
+                  {callState === 'connected' && !inRandomChat && (
                     <button onClick={endCall} style={{ padding: '6px 10px', borderRadius: '4px', background: 'var(--red)', color: '#fff', fontSize: '11px', border: 'none' }}>
                       Sair
                     </button>
@@ -1679,7 +2018,33 @@ export default function Home() {
             <div style={{ flex: 1, overflowY: 'auto', padding: '16px 12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {messages.map((msg) => {
                 const isMe = msg.senderId === user.id;
-                const liked = msg.likedBy.includes(user.id);
+                const liked = (msg.likedBy || []).includes(user.id);
+
+                // Registro de chamada: chip centralizado (fica salvo no chat)
+                if (msg.type === 'call') {
+                  return (
+                    <div key={msg.id} style={{ alignSelf: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }} className="animate-slide-in">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: '10px', padding: '6px 12px', color: 'var(--muted)', fontSize: '11px' }}>
+                        {msg.content === 'Chamada de vídeo' ? (
+                          <Video size={12} style={{ color: 'var(--gold)' }} />
+                        ) : (
+                          <Phone size={12} style={{ color: 'var(--gold)' }} />
+                        )}
+                        <span>{msg.content}</span>
+                      </div>
+                      <span style={{ fontSize: '9px', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {isMe && selectedFriend && (msg.readAt
+                          ? <CheckCheck size={11} style={{ color: 'var(--gold)' }} title="Visto" />
+                          : <Check size={11} style={{ color: 'var(--muted)' }} title="Enviado" />)}
+                        {isMe && selectedFriend && (
+                          <button onClick={() => handleDeleteMessage(msg.id)} style={{ color: 'var(--red)', border: 'none', background: 'none' }}>Apagar</button>
+                        )}
+                      </span>
+                    </div>
+                  );
+                }
+
                 return (
                   <div 
                     key={msg.id} 
@@ -1693,6 +2058,9 @@ export default function Home() {
                     }}
                     className="animate-slide-in"
                   >
+                    {selectedGroup && !isMe && (
+                      <span style={{ fontSize: '10px', fontWeight: '600', color: 'var(--gold)', padding: '0 4px' }}>{msg.senderName || 'Membro'}</span>
+                    )}
                     {msg.parentMessageId && (
                       <div style={{ 
                         background: 'rgba(255,255,255,0.05)', 
@@ -1748,7 +2116,7 @@ export default function Home() {
                       padding: '0 4px'
                     }}>
                       <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                      {isMe && selectedFriend && (
+                      {isMe && selectedFriend && !selectedGroup && (
                         msg.readAt
                           ? <CheckCheck size={11} style={{ color: 'var(--gold)' }} title="Visto" />
                           : <Check size={11} style={{ color: 'var(--muted)' }} title="Enviado" />
@@ -1768,7 +2136,7 @@ export default function Home() {
             </div>
 
             {/* Input Bar */}
-            <form onSubmit={handleSendMessage} style={{ padding: isMobile ? '8px' : '12px', background: 'var(--bg-2)', borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0 }}>
+            <form onSubmit={selectedGroup ? sendGroupMessage : handleSendMessage} style={{ padding: isMobile ? '8px' : '12px', background: 'var(--bg-2)', borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0 }}>
               {replyingTo && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-3)', borderLeft: '3px solid var(--gold)', padding: '6px 12px', borderRadius: '4px' }}>
                   <div style={{ fontSize: '11px', minWidth: 0 }}>
@@ -1784,8 +2152,8 @@ export default function Home() {
                   type="text" 
                   placeholder="Escreva..." 
                   value={messageText}
-                  onChange={e => { setMessageText(e.target.value); handleTypingChange(); }}
-                  onBlur={stopTyping}
+                  onChange={e => { setMessageText(e.target.value); if (!selectedGroup) handleTypingChange(); }}
+                  onBlur={() => { if (!selectedGroup) stopTyping(); }}
                   style={{ flex: 1, padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px', fontSize: '14px' }}
                 />
                 <button type="submit" className="btn-primary" style={{ padding: isMobile ? '8px 12px' : '10px 14px', minHeight: isMobile ? '36px' : '40px' }}>
@@ -1916,7 +2284,9 @@ export default function Home() {
             </div>
             <div>
               <h4 style={{ fontSize: '13px', color: '#fff' }}>{incomingCall.callerData.username}</h4>
-              <span style={{ fontSize: '10px', color: 'var(--muted)' }}>Chamando você ({incomingCall.type === 'video' ? 'Vídeo' : 'Áudio'})...</span>
+              <span style={{ fontSize: '10px', color: 'var(--muted)' }}>
+                {incomingCall.isGroup ? 'Chamada em grupo' : `Chamando você`} ({incomingCall.type === 'video' ? 'Vídeo' : 'Áudio'})...
+              </span>
             </div>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
@@ -1964,6 +2334,115 @@ export default function Home() {
                 </button>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 4. MODAL CRIAR GRUPO */}
+      {showCreateGroupModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1300, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <form onSubmit={createGroup} className="glass-card animate-slide-in" style={{ maxWidth: '380px', width: '100%', border: '1px solid var(--line)', padding: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <h3 style={{ color: 'var(--gold)', fontSize: '16px' }}>Criar Grupo</h3>
+              <button type="button" onClick={() => setShowCreateGroupModal(false)} style={{ color: 'var(--muted)', background: 'none', border: 'none', padding: '6px' }}><X /></button>
+            </div>
+            <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Nome do grupo</label>
+            <input
+              type="text"
+              placeholder="Ex: Amigos do Futebol"
+              value={groupName}
+              onChange={e => setGroupName(e.target.value)}
+              style={{ width: '100%', fontSize: '13px', padding: '8px 12px', minHeight: '38px', marginBottom: '12px' }}
+            />
+            <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Selecionar amigos</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '200px', overflowY: 'auto', marginBottom: '14px' }}>
+              {friendsList.map(f => {
+                const selected = groupMembers.includes(f.friendId);
+                return (
+                  <label key={f.friendId} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', background: selected ? 'var(--gold-soft)' : 'var(--bg-3)', border: selected ? '1px solid var(--gold)' : '1px solid var(--line)', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => setGroupMembers(prev => selected ? prev.filter(id => id !== f.friendId) : [...prev, f.friendId])}
+                      style={{ accentColor: 'var(--gold)' }}
+                    />
+                    <span>{f.username}</span>
+                    <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--muted)' }}>{f.customId}</span>
+                  </label>
+                );
+              })}
+              {friendsList.length === 0 && <p style={{ color: 'var(--muted)', fontSize: '12px', fontStyle: 'italic' }}>Você ainda não tem amigos para adicionar.</p>}
+            </div>
+            <button type="submit" className="btn-primary" style={{ width: '100%', justifyContent: 'center', minHeight: '40px' }}>
+              <UserPlus size={14} /> Criar Grupo
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* 4.1 MODAL ADICIONAR PARTICIPANTE AO GRUPO */}
+      {showAddMemberModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1300, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div className="glass-card animate-slide-in" style={{ maxWidth: '380px', width: '100%', border: '1px solid var(--line)', padding: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <h3 style={{ color: 'var(--gold)', fontSize: '16px' }}>Adicionar ao Grupo</h3>
+              <button onClick={() => setShowAddMemberModal(false)} style={{ color: 'var(--muted)', background: 'none', border: 'none', padding: '6px' }}><X /></button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '260px', overflowY: 'auto' }}>
+              {friendsList
+                .filter(f => !(selectedGroup?.members || []).some(m => m.userId === f.friendId))
+                .map(f => (
+                  <div key={f.friendId} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', background: 'var(--bg-3)', border: '1px solid var(--line)', borderRadius: '6px' }}>
+                    <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: 'var(--gold-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold', color: 'var(--gold)', flexShrink: 0 }}>
+                      {f.username[0].toUpperCase()}
+                    </div>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: '13px' }}>{f.username}</div>
+                      <div style={{ fontSize: '10px', color: 'var(--muted)' }}>{f.customId}</div>
+                    </div>
+                    <button onClick={() => addMemberToGroup(f.friendId)} className="btn-primary" style={{ padding: '6px 10px', fontSize: '11px', minHeight: '32px' }}>
+                      <UserPlus size={12} /> Adicionar
+                    </button>
+                  </div>
+                ))}
+              {friendsList.every(f => (selectedGroup?.members || []).some(m => m.userId === f.friendId)) && (
+                <p style={{ color: 'var(--muted)', fontSize: '12px', fontStyle: 'italic' }}>Todos os seus amigos já estão no grupo.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4.2 MODAL ADICIONAR À CHAMADA */}
+      {showAddToCallModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1300, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div className="glass-card animate-slide-in" style={{ maxWidth: '380px', width: '100%', border: '1px solid var(--line)', padding: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <h3 style={{ color: 'var(--gold)', fontSize: '16px' }}>Adicionar à Chamada</h3>
+              <button onClick={() => setShowAddToCallModal(false)} style={{ color: 'var(--muted)', background: 'none', border: 'none', padding: '6px' }}><X /></button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '260px', overflowY: 'auto' }}>
+              {friendsList.map(f => (
+                <div key={f.friendId} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', background: 'var(--bg-3)', border: '1px solid var(--line)', borderRadius: '6px' }}>
+                  <div style={{ position: 'relative' }}>
+                    <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: 'var(--gold-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold', color: 'var(--gold)', flexShrink: 0 }}>
+                      {f.username[0].toUpperCase()}
+                    </div>
+                    <div style={{ position: 'absolute', bottom: 0, right: 0, width: '8px', height: '8px', borderRadius: '50%', background: onlineUsers[f.friendId] ? 'var(--green)' : 'var(--bg-3)', border: '1px solid var(--bg-2)' }}></div>
+                  </div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: '13px' }}>{f.username}</div>
+                    <div style={{ fontSize: '10px', color: onlineUsers[f.friendId] ? 'var(--green)' : 'var(--muted)' }}>
+                      {onlineUsers[f.friendId] ? 'Online' : 'Offline'}
+                    </div>
+                  </div>
+                  <button onClick={() => addToCall(f)} className="btn-primary" style={{ padding: '6px 10px', fontSize: '11px', minHeight: '32px' }}>
+                    <UserPlus size={12} /> Chamar
+                  </button>
+                </div>
+              ))}
+              {friendsList.length === 0 && <p style={{ color: 'var(--muted)', fontSize: '12px', fontStyle: 'italic' }}>Nenhum amigo para adicionar.</p>}
+            </div>
           </div>
         </div>
       )}

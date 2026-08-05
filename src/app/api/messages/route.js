@@ -20,7 +20,7 @@ export async function GET(req) {
 
     // Busca as mensagens e as informações de quem enviou e respondeu
     const messages = await sql(
-      `SELECT m.id, m."senderId", m."receiverId", m.content, m."parentMessageId", m."createdAt", m."readAt",
+      `SELECT m.id, m."senderId", m."receiverId", m.content, m.type, m."parentMessageId", m."createdAt", m."readAt",
               pm.content as "parentContent",
               COALESCE(
                 (SELECT json_agg(ml."userId") 
@@ -141,7 +141,37 @@ export async function POST(req) {
       return NextResponse.json({ success: true, messageId });
     }
 
-    // 4. MARCAR MENSAGENS RECEBIDAS COMO LIDAS (READ)
+    // 4. REGISTRAR CHAMADA NO CHAT (CALL LOG)
+    if (action === 'call_log') {
+      const { receiverId, callType } = body;
+      if (!receiverId || !callType) {
+        return NextResponse.json({ error: 'receiverId e callType são obrigatórios' }, { status: 400 });
+      }
+      const content = callType === 'video' ? 'Chamada de vídeo' : 'Chamada de áudio';
+      const result = await sql(
+        `INSERT INTO "DirectMessage" ("senderId", "receiverId", content, type)
+         SELECT $1, $2, $3, 'call'
+         WHERE NOT EXISTS (
+           SELECT 1 FROM "DirectMessage" c
+           WHERE c."senderId" = $1 AND c."receiverId" = $2 AND c.type = 'call'
+             AND c."createdAt" > now() - interval '60 seconds'
+         )
+         RETURNING *`,
+        [userId, receiverId, content]
+      );
+      if (result.length === 0) {
+        const existing = await sql(
+          `SELECT * FROM "DirectMessage" WHERE "senderId" = $1 AND "receiverId" = $2
+             AND type = 'call' AND "createdAt" > now() - interval '60 seconds'
+           ORDER BY "createdAt" DESC LIMIT 1`,
+          [userId, receiverId]
+        );
+        return NextResponse.json({ success: true, message: existing[0], duplicate: true });
+      }
+      return NextResponse.json({ success: true, message: result[0] });
+    }
+
+    // 5. MARCAR MENSAGENS RECEBIDAS COMO LIDAS (READ)
     if (action === 'read') {
       const { senderId } = body;
       if (!senderId) {

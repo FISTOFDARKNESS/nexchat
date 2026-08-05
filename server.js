@@ -287,6 +287,42 @@ app.prepare().then(() => {
       console.log(`Socket ${socket.id} saiu do chat com amigo: ${roomId}`);
     });
 
+    // 4.5 CHAT EM GRUPO
+    socket.on('join_group_chat', (data) => {
+      const { groupId } = data;
+      if (!groupId) return;
+      socket.join(`group_chat_${groupId}`);
+      console.log(`Socket ${socket.id} entrou no grupo: ${groupId}`);
+    });
+
+    socket.on('leave_group_chat', (data) => {
+      const { groupId } = data;
+      if (!groupId) return;
+      socket.leave(`group_chat_${groupId}`);
+      console.log(`Socket ${socket.id} saiu do grupo: ${groupId}`);
+    });
+
+    socket.on('send_group_msg', (data) => {
+      // data: { groupId, message: { id, groupId, senderId, senderName, content, createdAt } }
+      const { groupId, message } = data;
+      if (!groupId || !message) return;
+      const roomId = `group_chat_${groupId}`;
+      socket.to(roomId).emit('receive_group_msg', message);
+      // Entrega direta aos membros online que estão fora da sala do grupo
+      const members = io.sockets.adapter.rooms.get(roomId);
+      getDbPool()?.query('SELECT "userId" FROM "GroupMember" WHERE "groupId" = $1', [groupId])
+        .then(res => {
+          const memberIds = new Set(res.rows.map(r => r.userId));
+          for (const [id, sock] of io.sockets.sockets) {
+            const uid = socketUsers[id];
+            if (uid && uid !== message.senderId && memberIds.has(uid) && (!members || !members.has(id))) {
+              sock.emit('receive_group_msg', message);
+            }
+          }
+        })
+        .catch(() => {});
+    });
+
     socket.on('send_friend_msg', (data) => {
       // data: { roomId, message: { id, senderId, receiverId, content, parentMessageId, parentMessageContent } }
       const { roomId, message } = data;
@@ -357,15 +393,33 @@ app.prepare().then(() => {
       // Caller entra na sala da chamada para receber aceite/rejeição e sinalização
       socket.join(callRoomId);
       activeCalls[callRoomId] = {
-        callerSocketId: socket.id,
-        callerUserId: socketUsers[socket.id],
-        calleeUserId: friendUserId
+        hostSocketId: socket.id,
+        type,
+        participants: [socketUsers[socket.id], friendUserId]
       };
 
       // Envia a chamada apenas para o socket do amigo
       for (const [id, sock] of io.sockets.sockets) {
         if (socketUsers[id] === friendUserId) {
-          sock.emit(`incoming_call_to_${friendUserId}`, { callerData, type, callRoomId });
+          sock.emit(`incoming_call_to_${friendUserId}`, { callerData, callerId: callerData.id, type, callRoomId, isGroup: false });
+          break;
+        }
+      }
+    });
+
+    // Adicionar pessoa a uma chamada em andamento
+    socket.on('add_friend_to_call', (data) => {
+      // data: { callRoomId, friendUserId, callerData, type }
+      const { callRoomId, friendUserId, callerData, type } = data;
+      const call = activeCalls[callRoomId];
+      if (!call) return;
+      const myUserId = socketUsers[socket.id];
+      if (!call.participants.includes(myUserId)) return;
+      if (call.participants.includes(friendUserId)) return;
+      call.participants.push(friendUserId);
+      for (const [id, sock] of io.sockets.sockets) {
+        if (socketUsers[id] === friendUserId) {
+          sock.emit(`incoming_call_to_${friendUserId}`, { callerData, callerId: myUserId, type, callRoomId, isGroup: true });
           break;
         }
       }
@@ -375,19 +429,25 @@ app.prepare().then(() => {
       // data: { callRoomId }
       const { callRoomId } = data;
       const call = activeCalls[callRoomId];
-      if (!call || socketUsers[socket.id] !== call.calleeUserId) return;
+      const userId = socketUsers[socket.id];
+      if (!call || !call.participants.includes(userId)) return;
       socket.join(callRoomId);
       io.to(callRoomId).emit(`call_accepted_for_${callRoomId}`);
+      // Avisa os demais que um participante entrou
+      socket.to(callRoomId).emit('participant_joined', { userId });
+      // Envia a lista de participantes ao novo participante (para criar o WebRTC mesh)
+      socket.emit('call_participants', { participants: call.participants, type: call.type });
     });
 
     socket.on('reject_friend_call', (data) => {
       // data: { callRoomId }
       const { callRoomId } = data;
       const call = activeCalls[callRoomId];
-      if (!call || socketUsers[socket.id] !== call.calleeUserId) return;
+      const userId = socketUsers[socket.id];
+      if (!call || !call.participants.includes(userId)) return;
       io.to(callRoomId).emit(`call_rejected_for_${callRoomId}`);
       socket.leave(callRoomId);
-      delete activeCalls[callRoomId];
+      call.participants = call.participants.filter(p => p !== userId);
     });
 
     socket.on('end_friend_call', (data) => {
@@ -395,10 +455,28 @@ app.prepare().then(() => {
       const { callRoomId } = data;
       const call = activeCalls[callRoomId];
       if (!call) return;
-      if (socket.id !== call.callerSocketId && socketUsers[socket.id] !== call.calleeUserId) return;
+      const userId = socketUsers[socket.id];
+      if (!call.participants.includes(userId)) return;
       io.to(callRoomId).emit('friend_call_ended');
       socket.leave(callRoomId);
       delete activeCalls[callRoomId];
+    });
+
+    // Registro de chamada no chat privado
+    socket.on('friend_call_logged', (data) => {
+      // data: { roomId, message }
+      const { roomId, message } = data;
+      if (!roomId || !message) return;
+      socket.to(roomId).emit('friend_call_logged', message);
+      const members = io.sockets.adapter.rooms.get(roomId);
+      const receiverId = message.receiverId;
+      if (receiverId) {
+        for (const [id, sock] of io.sockets.sockets) {
+          if (socketUsers[id] === receiverId && (!members || !members.has(id))) {
+            sock.emit('friend_call_logged', message);
+          }
+        }
+      }
     });
 
     // 5. DESCONEXÃO E LIMPEZA
@@ -420,10 +498,10 @@ app.prepare().then(() => {
         }
       }
 
-      // Encerra chamadas diretas em que este socket era participante
+      // Encerra chamadas diretas em que este usuário era participante
       for (const roomId in activeCalls) {
         const call = activeCalls[roomId];
-        if (call.callerSocketId === socket.id || socketUsers[socket.id] === call.calleeUserId) {
+        if (call.hostSocketId === socket.id || call.participants.includes(disconnectedUserId)) {
           io.to(roomId).emit('friend_call_ended');
           delete activeCalls[roomId];
         }

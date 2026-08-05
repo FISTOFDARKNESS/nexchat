@@ -5,6 +5,9 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 DROP TABLE IF EXISTS "Ban" CASCADE;
 DROP TABLE IF EXISTS "Report" CASCADE;
 DROP TABLE IF EXISTS "MessageLike" CASCADE;
+DROP TABLE IF EXISTS "GroupMessage" CASCADE;
+DROP TABLE IF EXISTS "GroupMember" CASCADE;
+DROP TABLE IF EXISTS "Group" CASCADE;
 DROP TABLE IF EXISTS "DirectMessage" CASCADE;
 DROP TABLE IF EXISTS "Friendship" CASCADE;
 DROP TABLE IF EXISTS "User" CASCADE;
@@ -44,10 +47,38 @@ CREATE TABLE "DirectMessage" (
   "senderId" UUID NOT NULL REFERENCES "User"(id) ON DELETE CASCADE,
   "receiverId" UUID NOT NULL REFERENCES "User"(id) ON DELETE CASCADE,
   "content" TEXT NOT NULL,
+  "type" TEXT NOT NULL DEFAULT 'text', -- 'text', 'call'
   "parentMessageId" UUID REFERENCES "DirectMessage"(id) ON DELETE SET NULL, -- Para sistema de Reply
   "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
   "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
   "readAt" TIMESTAMPTZ -- Momento em que o destinatário leu a mensagem (tick de visto)
+);
+
+-- Tabela de Grupos
+CREATE TABLE "Group" (
+  "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  "name" TEXT NOT NULL,
+  "ownerId" UUID NOT NULL REFERENCES "User"(id) ON DELETE CASCADE,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Membros dos Grupos
+CREATE TABLE "GroupMember" (
+  "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  "groupId" UUID NOT NULL REFERENCES "Group"(id) ON DELETE CASCADE,
+  "userId" UUID NOT NULL REFERENCES "User"(id) ON DELETE CASCADE,
+  "lastReadAt" TIMESTAMPTZ, -- Última leitura do usuário (badge de não lidas)
+  "joinedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE("groupId", "userId")
+);
+
+-- Mensagens dos Grupos
+CREATE TABLE "GroupMessage" (
+  "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  "groupId" UUID NOT NULL REFERENCES "Group"(id) ON DELETE CASCADE,
+  "senderId" UUID NOT NULL REFERENCES "User"(id) ON DELETE CASCADE,
+  "content" TEXT NOT NULL,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- Tabela de Likes nas Mensagens (Tabela Pivô)
@@ -87,3 +118,5 @@ CREATE INDEX idx_friendship_user2 ON "Friendship"("userId2");
 CREATE INDEX idx_dm_sender ON "DirectMessage"("senderId");
 CREATE INDEX idx_dm_receiver ON "DirectMessage"("receiverId");
 CREATE INDEX idx_dmlike_msg ON "MessageLike"("messageId");
+CREATE INDEX idx_group_msg ON "GroupMessage"("groupId");
+CREATE INDEX idx_group_member ON "GroupMember"("groupId");
