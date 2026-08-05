@@ -5,7 +5,8 @@ import io from 'socket.io-client';
 import { 
   Video, Phone, UserPlus, Send, Heart, Smile, Shield, Flag, X, 
   MessageSquare, LogOut, MapPin, User, Users, Check, Trash, ShieldAlert,
-  Moon, CheckSquare, Settings, AlertCircle, VolumeX, Mic, MicOff, VideoOff, Play
+  Moon, CheckSquare, Settings, AlertCircle, VolumeX, Mic, MicOff, VideoOff, Play,
+  Plus, CheckCircle, Clock, Info
 } from 'lucide-react';
 
 let socket;
@@ -25,6 +26,17 @@ export default function Home() {
   const [loginCountry, setLoginCountry] = useState('BR');
   const [loginMode, setLoginMode] = useState('guest'); // 'guest' ou 'google'
 
+  // --- Sistema de Toasts Personalizados ---
+  const [toasts, setToasts] = useState([]);
+  
+  const addToast = (message, type = 'info') => {
+    const id = Date.now() + Math.random().toString(36).substr(2, 5);
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 4500);
+  };
+
   // --- Estados do Chat e Amizade ---
   const [friendsList, setFriendsList] = useState([]);
   const [pendingReceived, setPendingReceived] = useState([]);
@@ -41,6 +53,7 @@ export default function Home() {
   const [inRandomChat, setInRandomChat] = useState(false);
   const [randomRoomId, setRandomRoomId] = useState(null);
   const [randomPartner, setRandomPartner] = useState(null);
+  const [randomFriendRequestStatus, setRandomFriendRequestStatus] = useState('none'); // 'none', 'sent', 'received', 'accepted'
   
   // Filtros de Match
   const [matchGender, setMatchGender] = useState('any'); // 'male', 'female', 'any'
@@ -79,6 +92,7 @@ export default function Home() {
   const messagesEndRef = useRef(null);
   const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
+  const remoteStreamRef = useRef(null);
 
   // Configuração STUN pública gratuita
   const rtcConfig = {
@@ -92,6 +106,19 @@ export default function Home() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, inQueue]);
+
+  // --- Efeito: Corrigir tela preta da Câmera (Reatribuir streams quando os elementos montarem no DOM) ---
+  useEffect(() => {
+    if (localVideoRef.current && localStreamRef.current) {
+      localVideoRef.current.srcObject = localStreamRef.current;
+    }
+  }, [inRandomChat, callState, matchMode, useMedia, activeCallRoom]);
+
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStreamRef.current) {
+      remoteVideoRef.current.srcObject = remoteStreamRef.current;
+    }
+  }, [inRandomChat, callState, matchMode, useMedia, activeCallRoom]);
 
   // --- Efeito: Inicializar Socket se Usuário Logar ---
   useEffect(() => {
@@ -116,8 +143,10 @@ export default function Home() {
       setInRandomChat(true);
       setRandomRoomId(roomId);
       setRandomPartner(partner);
+      setRandomFriendRequestStatus('none');
       setMessages([]);
       setReplyingTo(null);
+      addToast(`Conectado com um parceiro de ${partner.country}!`, 'success');
 
       if (matchMode === 'video' && useMedia) {
         setQueueStatusText('Iniciando stream de vídeo...');
@@ -126,11 +155,12 @@ export default function Home() {
     });
 
     socket.on('peer_left', () => {
-      alert('Seu parceiro de chat desconectou.');
+      addToast('Seu parceiro de chat desconectou.', 'warning');
       cleanupCall();
       setInRandomChat(false);
       setRandomRoomId(null);
       setRandomPartner(null);
+      setRandomFriendRequestStatus('none');
     });
 
     socket.on('receive_random_msg', (msg) => {
@@ -154,12 +184,14 @@ export default function Home() {
     });
 
     socket.on('receive_random_friend_request', (data) => {
-      alert('Seu parceiro de chat enviou um pedido de amizade!');
+      setRandomFriendRequestStatus('received');
+      addToast('Seu parceiro de chat enviou um pedido de amizade! Clique em Solicitar para aceitar.', 'info');
       loadFriends(); // Atualiza lista
     });
 
     socket.on('receive_random_friend_accepted', () => {
-      alert('Pedido de amizade aceito pelo seu parceiro!');
+      setRandomFriendRequestStatus('accepted');
+      addToast('Amizade estabelecida em tempo real! 🎉', 'success');
       loadFriends();
     });
 
@@ -195,7 +227,7 @@ export default function Home() {
       if (selectedFriend && (msg.senderId === selectedFriend.friendId || msg.receiverId === selectedFriend.friendId)) {
         setMessages(prev => [...prev, msg]);
       } else {
-        // Alerta simples ou reload (em produção usaria badges de unread)
+        addToast(`Nova mensagem de amizade de outra conversa!`, 'info');
         loadFriends();
       }
     });
@@ -218,13 +250,10 @@ export default function Home() {
 
     // 4. Ouvintes de Chamada com Amigos
     socket.on(`incoming_call_to_${user.id}`, (data) => {
-      // data: { callerData, type, callRoomId }
       if (callState === 'idle' && !inRandomChat) {
         setIncomingCall(data);
         setCallType(data.type);
-        // Toca som de toque
       } else {
-        // Envia rejeição automática (ocupado)
         socket.emit('reject_friend_call', { callRoomId: data.callRoomId });
       }
     });
@@ -233,9 +262,8 @@ export default function Home() {
       // Callback local de aceitação
     });
 
-    // Como o canal é global para sinalização, ouvimos eventos associados ao quarto de chamada ativo
     socket.on('friend_call_ended', () => {
-      alert('Chamada encerrada pelo amigo.');
+      addToast('Chamada encerrada pelo amigo.', 'warning');
       cleanupCall();
     });
 
@@ -311,7 +339,7 @@ export default function Home() {
         }
       } catch (err) {
         console.warn('Permissão de mídia recusada ou indisponível:', err.message);
-        alert('Não foi possível acessar a câmera ou microfone. O modo somente texto estará disponível.');
+        addToast('Não foi possível acessar a câmera ou microfone. O modo texto estará disponível.', 'error');
         setUseMedia(false);
       }
     } else {
@@ -334,8 +362,11 @@ export default function Home() {
 
       // Receber stream remoto
       peerConnectionRef.current.ontrack = (event) => {
-        if (remoteVideoRef.current && event.streams[0]) {
-          remoteVideoRef.current.srcObject = event.streams[0];
+        if (event.streams[0]) {
+          remoteStreamRef.current = event.streams[0];
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = event.streams[0];
+          }
         }
       };
 
@@ -364,6 +395,7 @@ export default function Home() {
     if (remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = null;
     }
+    remoteStreamRef.current = null;
     setCallState('idle');
     setActiveCallRoom(null);
   };
@@ -392,11 +424,14 @@ export default function Home() {
       
       if (data.success) {
         setUser(data.user);
+        addToast(`Bem-vindo, ${data.user.username}!`, 'success');
       } else {
         setAuthError(data.error || 'Falha na autenticação');
+        addToast(data.error || 'Falha na autenticação', 'error');
       }
     } catch (err) {
       setAuthError('Erro ao conectar ao servidor de autenticação');
+      addToast('Erro ao conectar ao servidor de autenticação', 'error');
     } finally {
       setLoading(false);
     }
@@ -425,6 +460,7 @@ export default function Home() {
       socket.emit('leave_queue');
     }
     setInQueue(false);
+    addToast('Busca cancelada.', 'info');
   };
 
   const skipRandomMatch = () => {
@@ -435,6 +471,7 @@ export default function Home() {
     setInRandomChat(false);
     setRandomRoomId(null);
     setRandomPartner(null);
+    setRandomFriendRequestStatus('none');
     
     // Auto-iniciar a próxima busca
     setTimeout(() => {
@@ -568,11 +605,18 @@ export default function Home() {
       });
       const data = await res.json();
       if (data.success) {
-        alert(data.autoAccepted ? 'Agora vocês são amigos!' : 'Pedido de amizade enviado!');
-        socket.emit('send_random_friend_request', { roomId: randomRoomId, senderId: user.id });
+        if (data.autoAccepted) {
+          setRandomFriendRequestStatus('accepted');
+          addToast('Vocês agora são amigos! 🎉', 'success');
+          socket.emit('accept_random_friend_request', { roomId: randomRoomId, senderId: user.id });
+        } else {
+          setRandomFriendRequestStatus('sent');
+          addToast('Solicitação de amizade enviada com sucesso!', 'success');
+          socket.emit('send_random_friend_request', { roomId: randomRoomId, senderId: user.id });
+        }
         loadFriends();
       } else {
-        alert(data.error);
+        addToast(data.error, 'error');
       }
     } catch (err) {
       console.error(err);
@@ -599,11 +643,14 @@ export default function Home() {
       });
       const data = await res.json();
       if (data.success) {
-        setAddFriendSuccess(data.autoAccepted ? 'Agora vocês são amigos!' : 'Pedido de amizade enviado com sucesso!');
+        const msg = data.autoAccepted ? 'Agora vocês são amigos! 🎉' : 'Pedido de amizade enviado com sucesso!';
+        setAddFriendSuccess(msg);
+        addToast(msg, 'success');
         setAddFriendId('');
         loadFriends();
       } else {
         setAddFriendError(data.error);
+        addToast(data.error, 'error');
       }
     } catch (e) {
       setAddFriendError('Erro na conexão com o servidor');
@@ -623,6 +670,7 @@ export default function Home() {
       });
       const data = await res.json();
       if (data.success) {
+        addToast(accept ? 'Solicitação aceita!' : 'Solicitação rejeitada.', accept ? 'success' : 'info');
         loadFriends();
       }
     } catch (err) {
@@ -646,7 +694,7 @@ export default function Home() {
       });
       const data = await res.json();
       if (data.success) {
-        alert('Usuário denunciado com sucesso. Os moderadores analisarão os registros.');
+        addToast('Usuário denunciado com sucesso. Os moderadores analisarão os registros.', 'success');
         setShowReportModal(false);
         setReportDetails('');
         skipRandomMatch(); // Pula automaticamente para a próxima pessoa
@@ -669,13 +717,14 @@ export default function Home() {
     socket.on(`call_accepted_for_${callRoomId}`, async () => {
       setCallState('connected');
       socket.join(callRoomId);
+      addToast('Chamada conectada!', 'success');
       if (useMedia) {
         await initWebRTC(callRoomId, 'caller');
       }
     });
 
     socket.on(`call_rejected_for_${callRoomId}`, () => {
-      alert('O amigo rejeitou a chamada ou está ocupado.');
+      addToast('O amigo rejeitou a chamada ou está ocupado.', 'warning');
       cleanupCall();
     });
 
@@ -705,6 +754,7 @@ export default function Home() {
     if (!incomingCall) return;
     socket.emit('reject_friend_call', { callRoomId: incomingCall.callRoomId });
     setIncomingCall(null);
+    addToast('Chamada recusada.', 'info');
   };
 
   const endCall = () => {
@@ -713,6 +763,7 @@ export default function Home() {
       socket.emit('end_friend_call', { callRoomId: roomId });
     }
     cleanupCall();
+    addToast('Chamada encerrada.', 'info');
   };
 
   // --- Admin Logic ---
@@ -751,13 +802,13 @@ export default function Home() {
       });
       const data = await res.json();
       if (data.success) {
-        setAdminStatusMsg(`Sucesso: Ação '${action}' aplicada.`);
+        addToast(`Ação '${action}' aplicada pelo Admin.`, 'success');
         loadAdminReports();
       } else {
-        setAdminStatusMsg(`Erro: ${data.error}`);
+        addToast(`Erro: ${data.error}`, 'error');
       }
     } catch (err) {
-      setAdminStatusMsg('Erro ao contatar o servidor');
+      addToast('Erro ao contatar o servidor', 'error');
     }
   };
 
@@ -768,6 +819,7 @@ export default function Home() {
         track.enabled = !audioEnabled;
       });
       setAudioEnabled(!audioEnabled);
+      addToast(audioEnabled ? 'Microfone Mutado' : 'Microfone Ativo', 'info');
     }
   };
 
@@ -777,6 +829,7 @@ export default function Home() {
         track.enabled = !videoEnabled;
       });
       setVideoEnabled(!videoEnabled);
+      addToast(videoEnabled ? 'Câmera Desativada' : 'Câmera Ativada', 'info');
     }
   };
 
@@ -784,14 +837,14 @@ export default function Home() {
   if (!consentGranted) {
     return (
       <div style={{ display: 'flex', height: '100vh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: '20px' }}>
-        <div className="glass-card animate-fade-in" style={{ maxWidth: '500px', width: '100%', textAlign: 'center', border: '1px solid var(--line)' }}>
+        <div className="glass-card animate-slide-in" style={{ maxWidth: '500px', width: '100%', textAlign: 'center', border: '1px solid var(--line)' }}>
           <h2 style={{ color: 'var(--gold)', marginBottom: '16px' }}>Consentimento e Permissões</h2>
           <p style={{ color: 'var(--muted)', fontSize: '14px', lineHeight: '1.6', marginBottom: '24px' }}>
             Para oferecer chamadas de vídeo, chat em tempo real e uma experiência personalizada, nosso site utiliza cookies locais de sessão. 
             Você deseja ativar sua câmera e microfone agora para fazer videochamadas com aleatórios?
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <button className="btn-primary" onClick={() => requestMediaPermissions(true)} style={{ justifyContent: 'center' }}>
+            <button className="btn-primary animate-pulse-glow" onClick={() => requestMediaPermissions(true)} style={{ justifyContent: 'center' }}>
               <Video className="icon" /> Aceitar Cookies e Ativar Câmera + Microfone
             </button>
             <button className="btn-secondary" onClick={() => requestMediaPermissions(false)}>
@@ -807,9 +860,9 @@ export default function Home() {
   if (!user) {
     return (
       <div style={{ display: 'flex', height: '100vh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
-        <div className="glass-card animate-fade-in" style={{ width: '420px', border: '1px solid var(--line)' }}>
-          <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-            <h1 style={{ color: 'var(--gold)', fontSize: '28px', textShadow: '0 0 10px var(--gold-glow)' }}>NexChat</h1>
+        <div className="glass-card animate-slide-in" style={{ width: '420px', border: '1px solid var(--line)' }}>
+          <div style={{ textAlign: 'center', marginBottom: '24px' }} className="animate-float">
+            <h1 style={{ color: 'var(--gold)', fontSize: '32px', textShadow: '0 0 15px var(--gold-glow)' }}>NexChat</h1>
             <p style={{ color: 'var(--muted)', fontSize: '13px', marginTop: '4px' }}>A sua plataforma de conexões imediatas</p>
           </div>
 
@@ -882,7 +935,7 @@ export default function Home() {
               </span>
             </div>
 
-            <button type="submit" disabled={loading} className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: '8px' }}>
+            <button type="submit" disabled={loading} className="btn-primary animate-pulse-glow" style={{ width: '100%', justifyContent: 'center', marginTop: '8px' }}>
               {loading ? 'Entrando...' : loginMode === 'guest' ? 'Entrar como Visitante' : 'Conectar com Google'}
             </button>
           </form>
@@ -895,8 +948,18 @@ export default function Home() {
   return (
     <div className="app-container" style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--bg)', overflow: 'hidden' }}>
       
+      {/* Container de Toasts flutuantes */}
+      <div className="toast-container">
+        {toasts.map(t => (
+          <div key={t.id} className={`toast-item ${t.type}`}>
+            <Info size={16} style={{ color: t.type === 'success' ? 'var(--green)' : t.type === 'error' ? 'var(--red)' : t.type === 'warning' ? 'var(--amber)' : 'var(--gold)' }} />
+            <span style={{ fontSize: '13px' }}>{t.message}</span>
+          </div>
+        ))}
+      </div>
+
       {/* 1. SIDEBAR (Estilo Discord) */}
-      <aside style={{ width: '300px', background: 'var(--bg-2)', borderRight: '1px solid var(--line)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+      <aside style={{ width: '300px', background: 'var(--bg-2)', borderRight: '1px solid var(--line)', display: 'flex', flexDirection: 'column', flexShrink: 0 }} className="animate-slide-in-left">
         {/* Perfil e Logout */}
         <div style={{ padding: '16px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
@@ -956,7 +1019,7 @@ export default function Home() {
             </span>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {pendingReceived.map(req => (
-                <div key={req.friendId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '13px' }}>
+                <div key={req.friendId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '13px' }} className="animate-slide-in">
                   <span>{req.username}</span>
                   <div style={{ display: 'flex', gap: '4px' }}>
                     <button onClick={() => respondFriendRequest(req.friendId, true)} style={{ color: 'var(--green)', padding: '2px' }}>
@@ -987,6 +1050,7 @@ export default function Home() {
                   setSelectedFriend(f);
                   setShowAdminPanel(false);
                 }}
+                className="friend-item-hover"
                 style={{ 
                   display: 'flex', 
                   alignItems: 'center', 
@@ -1019,7 +1083,7 @@ export default function Home() {
         
         {/* Painel Administrativo */}
         {showAdminPanel ? (
-          <div style={{ flex: 1, padding: '24px', overflowY: 'auto' }}>
+          <div style={{ flex: 1, padding: '24px', overflowY: 'auto' }} className="animate-fade-in">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h2 style={{ color: 'var(--gold)' }}>Painel de Moderação / Admin</h2>
               <button onClick={() => setShowAdminPanel(false)} style={{ color: 'var(--muted)' }}><X /></button>
@@ -1038,7 +1102,7 @@ export default function Home() {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   {reports.map(rep => (
-                    <div key={rep.id} style={{ padding: '16px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px' }}>
+                    <div key={rep.id} style={{ padding: '16px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px' }} className="animate-slide-in">
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--muted)', marginBottom: '8px' }}>
                         <span>Denunciante: {rep.reporterName} ({rep.reporterCustomId})</span>
                         <span>Data: {new Date(rep.createdAt).toLocaleString()}</span>
@@ -1075,7 +1139,7 @@ export default function Home() {
           </div>
         ) : selectedFriend || inRandomChat ? (
           // SE ESTIVER CONECTADO NO CHAT COM ALGUÉM (FRIEND OU RANDOM)
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%' }} className="animate-fade-in">
             
             {/* Header do Chat */}
             <div style={{ height: '64px', borderBottom: '1px solid var(--line)', padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-2)' }}>
@@ -1094,13 +1158,32 @@ export default function Home() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 {inRandomChat ? (
                   <>
-                    <button className="btn-primary" onClick={sendFriendRequestInRandom} style={{ padding: '6px 12px', fontSize: '12px' }}>
-                      <UserPlus size={14} /> Mandar Solicitação
-                    </button>
+                    {/* Botão Dinâmico de Solicitação de Amizade */}
+                    {randomFriendRequestStatus === 'none' && (
+                      <button className="btn-primary" onClick={sendFriendRequestInRandom} style={{ padding: '6px 12px', fontSize: '12px' }}>
+                        <UserPlus size={14} /> Pedir Amizade
+                      </button>
+                    )}
+                    {randomFriendRequestStatus === 'sent' && (
+                      <button className="btn-secondary" disabled style={{ padding: '6px 12px', fontSize: '12px', opacity: 0.8, color: 'var(--gold)', borderColor: 'var(--gold)' }}>
+                        <Clock size={14} style={{ marginRight: '4px' }} /> Pendente
+                      </button>
+                    )}
+                    {randomFriendRequestStatus === 'received' && (
+                      <button className="btn-primary animate-pulse-glow" onClick={sendFriendRequestInRandom} style={{ padding: '6px 12px', fontSize: '12px' }}>
+                        <CheckCircle size={14} style={{ marginRight: '4px' }} /> Aceitar Amizade
+                      </button>
+                    )}
+                    {randomFriendRequestStatus === 'accepted' && (
+                      <button className="btn-secondary" disabled style={{ padding: '6px 12px', fontSize: '12px', color: 'var(--green)', borderColor: 'var(--green)' }}>
+                        <CheckCircle size={14} style={{ marginRight: '4px' }} /> Amigos ✅
+                      </button>
+                    )}
+
                     <button onClick={() => setShowReportModal(true)} title="Denunciar Usuário" style={{ color: 'var(--red)', background: 'rgba(239, 68, 68, 0.1)', padding: '8px', borderRadius: '6px' }}>
                       <Flag size={16} />
                     </button>
-                    <button className="btn-primary" onClick={skipRandomMatch} style={{ padding: '8px 16px' }}>
+                    <button className="btn-primary animate-pulse-glow" onClick={skipRandomMatch} style={{ padding: '8px 16px' }}>
                       Próximo Match <Play size={14} />
                     </button>
                   </>
@@ -1120,25 +1203,25 @@ export default function Home() {
 
             {/* Video Box (WebRTC P2P) */}
             {((inRandomChat && matchMode === 'video') || callState === 'connected') && (
-              <div style={{ height: '240px', background: '#000', display: 'flex', position: 'relative', borderBottom: '1px solid var(--line)' }}>
+              <div style={{ height: '260px', background: '#000', display: 'flex', position: 'relative', borderBottom: '1px solid var(--line)' }}>
                 {/* Remoto */}
                 <video ref={remoteVideoRef} autoPlay playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 {/* Local Flutuante */}
                 {useMedia && (
-                  <div style={{ position: 'absolute', bottom: '10px', right: '10px', width: '100px', height: '130px', borderRadius: '8px', overflow: 'hidden', border: '2px solid var(--gold)', boxShadow: '0 0 10px rgba(0,0,0,0.5)' }}>
+                  <div style={{ position: 'absolute', bottom: '10px', right: '10px', width: '120px', height: '150px', borderRadius: '8px', overflow: 'hidden', border: '2px solid var(--gold)', boxShadow: '0 0 10px rgba(0,0,0,0.5)' }}>
                     <video ref={localVideoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   </div>
                 )}
                 {/* Controles flutuantes */}
-                <div style={{ position: 'absolute', bottom: '10px', left: '10px', display: 'flex', gap: '8px' }}>
-                  <button onClick={toggleAudio} style={{ padding: '6px', borderRadius: '50%', background: 'rgba(0,0,0,0.6)', color: '#fff' }}>
+                <div style={{ position: 'absolute', bottom: '10px', left: '10px', display: 'flex', gap: '8px', zIndex: 10 }}>
+                  <button onClick={toggleAudio} style={{ padding: '8px', borderRadius: '50%', background: 'rgba(0,0,0,0.6)', color: '#fff', border: '1px solid var(--line)' }}>
                     {audioEnabled ? <Mic size={14} /> : <MicOff size={14} />}
                   </button>
-                  <button onClick={toggleVideo} style={{ padding: '6px', borderRadius: '50%', background: 'rgba(0,0,0,0.6)', color: '#fff' }}>
+                  <button onClick={toggleVideo} style={{ padding: '8px', borderRadius: '50%', background: 'rgba(0,0,0,0.6)', color: '#fff', border: '1px solid var(--line)' }}>
                     {videoEnabled ? <Video size={14} /> : <VideoOff size={14} />}
                   </button>
                   {callState === 'connected' && (
-                    <button onClick={endCall} style={{ padding: '6px 12px', borderRadius: '4px', background: 'var(--red)', color: '#fff', fontSize: '11px' }}>
+                    <button onClick={endCall} style={{ padding: '6px 12px', borderRadius: '4px', background: 'var(--red)', color: '#fff', fontSize: '11px', border: 'none' }} className="btn-primary">
                       Desconectar
                     </button>
                   )}
@@ -1161,8 +1244,8 @@ export default function Home() {
                       flexDirection: 'column',
                       gap: '4px',
                       position: 'relative',
-                      group: 'true'
                     }}
+                    className="animate-slide-in"
                   >
                     {/* Conteúdo da resposta se houver */}
                     {msg.parentMessageId && (
@@ -1224,8 +1307,8 @@ export default function Home() {
                       padding: '0 4px'
                     }}>
                       <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                      <button onClick={() => setReplyingTo(msg)} style={{ color: 'var(--muted)', hover: { color: 'var(--gold)' } }}>Responder</button>
-                      <button onClick={() => handleLikeMessage(msg.id)} style={{ color: liked ? 'var(--gold)' : 'var(--muted)' }}>
+                      <button onClick={() => setReplyingTo(msg)} style={{ color: 'var(--muted)', border: 'none', background: 'none' }} className="friend-item-hover">Responder</button>
+                      <button onClick={() => handleLikeMessage(msg.id)} style={{ color: liked ? 'var(--gold)' : 'var(--muted)', border: 'none', background: 'none' }}>
                         {liked ? 'Descurtir' : 'Curtir'}
                       </button>
                     </div>
@@ -1239,12 +1322,12 @@ export default function Home() {
             <form onSubmit={handleSendMessage} style={{ padding: '16px', background: 'var(--bg-2)', borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {/* Caixa de visualização do Reply */}
               {replyingTo && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-3)', borderLeft: '3px solid var(--gold)', padding: '6px 12px', borderRadius: '4px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-3)', borderLeft: '3px solid var(--gold)', padding: '6px 12px', borderRadius: '4px' }} className="animate-slide-in">
                   <div style={{ fontSize: '12px' }}>
                     <span style={{ color: 'var(--gold)', fontWeight: '600', display: 'block', fontSize: '10px' }}>RESPONDENDO A:</span>
                     <span style={{ color: 'var(--muted)' }}>{replyingTo.content}</span>
                   </div>
-                  <button type="button" onClick={() => setReplyingTo(null)} style={{ color: 'var(--muted)' }}><X size={14} /></button>
+                  <button type="button" onClick={() => setReplyingTo(null)} style={{ color: 'var(--muted)', background: 'none', border: 'none' }}><X size={14} /></button>
                 </div>
               )}
 
@@ -1265,11 +1348,11 @@ export default function Home() {
           </div>
         ) : inQueue ? (
           // FILA DE MATCHMAKING OMEGLE
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px', textAlign: 'center' }}>
-            {/* Animação do Radar Dourado */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px', textAlign: 'center' }} className="animate-fade-in">
+            {/* Animação do Radar Dourado Otimizado */}
             <div style={{ 
-              width: '120px', 
-              height: '120px', 
+              width: '140px', 
+              height: '140px', 
               borderRadius: '50%', 
               border: '2px solid var(--gold)', 
               display: 'flex', 
@@ -1277,18 +1360,12 @@ export default function Home() {
               justifyContent: 'center',
               position: 'relative',
               boxShadow: '0 0 20px var(--gold-glow)',
-              marginBottom: '24px',
-              animation: 'spin 4s linear infinite'
+              marginBottom: '32px',
             }}>
-              <Video size={40} style={{ color: 'var(--gold)' }} />
-              {/* Círculo expansivo */}
-              <div style={{ 
-                position: 'absolute', 
-                inset: '-10px', 
-                border: '1px dashed var(--gold)', 
-                borderRadius: '50%',
-                opacity: 0.5
-              }}></div>
+              {/* Ondas crescentes de radar em CSS */}
+              <div className="radar-wave-1"></div>
+              <div className="radar-wave-2"></div>
+              <Video size={44} style={{ color: 'var(--gold)', zIndex: 2 }} />
             </div>
             
             <h2 style={{ color: 'var(--gold)', marginBottom: '8px' }}>Matchmaking Conectado</h2>
@@ -1301,8 +1378,8 @@ export default function Home() {
           </div>
         ) : (
           // TELA INICIAL / BEM-VINDO
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px', textAlign: 'center' }}>
-            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'var(--gold-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--gold)', marginBottom: '20px' }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px', textAlign: 'center' }} className="animate-fade-in">
+            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'var(--gold-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--gold)', marginBottom: '20px' }} className="animate-float">
               <ShieldAlert size={36} style={{ color: 'var(--gold)' }} />
             </div>
             
@@ -1313,7 +1390,7 @@ export default function Home() {
             </p>
 
             {/* Configuração de Filtros de Pareamento */}
-            <div className="glass-card" style={{ maxWidth: '500px', width: '100%', border: '1px solid var(--line)', textAlign: 'left' }}>
+            <div className="glass-card animate-slide-in" style={{ maxWidth: '500px', width: '100%', border: '1px solid var(--line)', textAlign: 'left' }}>
               <h3 style={{ color: '#fff', fontSize: '15px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Settings size={16} /> Configurar Próximo Match Aleatório
               </h3>
@@ -1354,7 +1431,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                <button className="btn-primary" onClick={startRandomMatch} style={{ width: '100%', justifyContent: 'center', marginTop: '6px' }}>
+                <button className="btn-primary animate-pulse-glow" onClick={startRandomMatch} style={{ width: '100%', justifyContent: 'center', marginTop: '6px' }}>
                   Iniciar Conexão Aleatória <Play size={14} />
                 </button>
               </div>
@@ -1365,7 +1442,7 @@ export default function Home() {
 
       {/* 3. TELA DE RECEBIMENTO DE CHAMADA DIRETA */}
       {incomingCall && (
-        <div style={{ position: 'fixed', top: '20px', right: '20px', zIndex: 1000, width: '320px', background: 'rgba(17,17,21,0.95)', backdropFilter: 'blur(10px)', border: '1px solid var(--gold)', borderRadius: '12px', padding: '16px', boxShadow: '0 0 20px rgba(234, 200, 71, 0.25)' }} className="animate-fade-in">
+        <div style={{ position: 'fixed', top: '24px', right: '24px', zIndex: 1000, width: '320px', background: 'rgba(17,17,21,0.95)', backdropFilter: 'blur(10px)', border: '1px solid var(--gold)', borderRadius: '12px', padding: '16px', boxShadow: '0 0 20px rgba(234, 200, 71, 0.25)' }} className="animate-pulse-glow">
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
             <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'var(--gold-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: 'var(--gold)' }}>
               {incomingCall.callerData.username[0].toUpperCase()}
@@ -1389,10 +1466,10 @@ export default function Home() {
       {/* 4. MODAL DE DENÚNCIA (REPORT) */}
       {showReportModal && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div className="glass-card" style={{ maxWidth: '400px', width: '100%', border: '1px solid var(--line)' }}>
+          <div className="glass-card animate-slide-in" style={{ maxWidth: '400px', width: '100%', border: '1px solid var(--line)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h3 style={{ color: 'var(--red)' }}>Denunciar Usuário</h3>
-              <button onClick={() => setShowReportModal(false)} style={{ color: 'var(--muted)' }}><X /></button>
+              <button onClick={() => setShowReportModal(false)} style={{ color: 'var(--muted)', background: 'none', border: 'none' }}><X /></button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
