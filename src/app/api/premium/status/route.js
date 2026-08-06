@@ -9,19 +9,21 @@ export async function GET(req) {
     if (!auth) {
       return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
     }
-    const premium = isPremium(user);
 
     let user = null;
     try {
       const rows = await sql(
-        `SELECT id, username, "customId", "avatarUrl", role, "premiumTier", "premiumExpiresAt", "invisibleMode", "chatTheme", "lastNameChangeAt"
+        `SELECT id, username, "customId", "avatarUrl", role, "premiumTier", "premiumSince", "premiumExpiresAt", "invisibleMode", "chatTheme", "lastNameChangeAt"
          FROM "User" WHERE id = $1 LIMIT 1`,
         [auth.id]
       );
       user = rows[0] || null;
-    } catch {
-      user = null;
+    } catch (e) {
+      console.error('[Premium] status db error:', e);
+      return NextResponse.json({ error: 'Erro ao buscar usuário' }, { status: 500 });
     }
+
+    const premium = isPremium(user);
 
     return NextResponse.json({
       success: true,
@@ -32,7 +34,7 @@ export async function GET(req) {
       user
     });
   } catch (error) {
-    console.error('Erro no status do Premium:', error);
-    return NextResponse.json({ error: 'Erro interno do servidor' }, { status: 500 });
+    console.error('[Premium] status error:', error);
+    return NextResponse.json({ error: 'Erro interno do servidor: ' + error.message }, { status: 500 });
   }
 }
