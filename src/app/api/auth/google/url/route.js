@@ -4,7 +4,9 @@ import { createOAuthState } from '@/lib/session';
 export async function GET(req) {
   try {
     const clientId = process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_KEY || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
-    const redirectUri = `${new URL(req.url).origin}/api/auth/google/callback`;
+    const proto = req.headers.get('x-forwarded-proto') || new URL(req.url).protocol.slice(0, -1);
+    const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || new URL(req.url).host;
+    const redirectUri = `${proto}://${host}/api/auth/google/callback`;
 
     if (!clientId) {
       return NextResponse.json({ error: 'GOOGLE_CLIENT_ID não está configurado no servidor' }, { status: 500 });

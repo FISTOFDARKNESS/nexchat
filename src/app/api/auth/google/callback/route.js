@@ -19,7 +19,10 @@ async function generateUniqueCustomId(baseName) {
 
 export async function GET(req) {
   try {
-    const origin = process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin;
+    const proto = req.headers.get('x-forwarded-proto') || new URL(req.url).protocol.slice(0, -1);
+    const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || new URL(req.url).host;
+    const baseOrigin = `${proto}://${host}`;
+    const origin = process.env.NEXT_PUBLIC_APP_URL || baseOrigin;
     const { searchParams } = new URL(req.url);
     const code = searchParams.get('code');
     const state = searchParams.get('state');
@@ -34,7 +37,7 @@ export async function GET(req) {
 
     const clientId = process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_KEY || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET_KEY || process.env.GOOGLE_SECRET_KEY;
-    const redirectUri = `${new URL(req.url).origin}/api/auth/google/callback`;
+    const redirectUri = `${baseOrigin}/api/auth/google/callback`;
 
     // 1. Trocar o código pelo Access Token do Google
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
