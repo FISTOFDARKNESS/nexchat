@@ -176,20 +176,26 @@ app.prepare().then(() => {
 
     socket.on('identify', ({ userId } = {}) => {
       if (!userId) return;
-      // Valida a identidade pelo cookie de sessão (impede spoofing)
       const sessionToken = getCookie(socket.handshake, SESSION_COOKIE_NAME);
       const session = verifySessionToken(sessionToken);
       if (!session || session.id !== userId) {
         socket.emit('identify_error', { error: 'Sessão inválida. Faça login novamente.' });
         return;
       }
-      const alreadyOnline = !userSockets[userId] || userSockets[userId].size === 0;
       socketUsers[socket.id] = userId;
       if (!userSockets[userId]) userSockets[userId] = new Set();
+      const wasOffline = userSockets[userId].size === 0;
       userSockets[userId].add(socket.id);
-      if (alreadyOnline) {
-        io.emit('user_online', { userId });
-        setUserOnline(userId, true);
+      if (wasOffline) {
+        getDbPool()?.query('SELECT "invisibleMode" FROM "User" WHERE id = $1 LIMIT 1', [userId])
+          .then(res => {
+            const invisible = res.rows[0]?.invisibleMode;
+            if (!invisible) {
+              io.emit('user_online', { userId });
+              setUserOnline(userId, true);
+            }
+          })
+          .catch(() => {});
       }
     });
 
@@ -201,15 +207,23 @@ app.prepare().then(() => {
       // Remove qualquer entrada antiga deste socket da fila
       matchmakingQueue = matchmakingQueue.filter(item => item.socketId !== socket.id);
 
+      let premiumFlag = false;
+      try {
+        const p = await getDbPool()?.query('SELECT "premiumTier", "premiumExpiresAt" FROM "User" WHERE id = $1 LIMIT 1', [userData.userId]);
+        const u = p.rows[0];
+        premiumFlag = !!(u?.premiumTier === 'premium' && u?.premiumExpiresAt && new Date(u.premiumExpiresAt) > new Date());
+      } catch {}
+
       const newParticipant = {
         socketId: socket.id,
         userId: userData.userId,
         username: userData.username,
         gender: userData.gender || 'other',
         country: userData.country || 'unknown',
-        prefGender: userData.prefGender || 'any', // 'male', 'female', 'any'
-        prefCountry: userData.prefCountry || 'any', // código de país ou 'any'
-        mode: userData.mode || 'text'
+        prefGender: userData.prefGender || 'any',
+        prefCountry: userData.prefCountry || 'any',
+        mode: userData.mode || 'text',
+        premium: premiumFlag
       };
 
       console.log(`Usuário entrou na fila: ${newParticipant.username} (Gênero: ${newParticipant.gender}, PrefGênero: ${newParticipant.prefGender}, Modo: ${newParticipant.mode})`);
@@ -217,28 +231,32 @@ app.prepare().then(() => {
       // Tenta encontrar um par na fila
       let matchedPeer = null;
 
+      // Premium tem prioridade: procura primeiro entre outros premium
       for (let i = 0; i < matchmakingQueue.length; i++) {
         const potentialPeer = matchmakingQueue[i];
-
-        // Verificar compatibilidade de Modo (texto com texto, vídeo com vídeo)
+        if (!potentialPeer.premium) continue;
         if (potentialPeer.mode !== newParticipant.mode) continue;
-
-        // Verificar gênero do peer em relação à preferência do novo participante
         if (newParticipant.prefGender !== 'any' && potentialPeer.gender !== newParticipant.prefGender) continue;
-
-        // Verificar gênero do novo participante em relação à preferência do peer
         if (potentialPeer.prefGender !== 'any' && newParticipant.gender !== potentialPeer.prefGender) continue;
-
-        // Verificar preferência de país (do novo participante)
         if (newParticipant.prefCountry !== 'any' && potentialPeer.country !== newParticipant.prefCountry) continue;
-
-        // Verificar preferência de país (do peer)
         if (potentialPeer.prefCountry !== 'any' && newParticipant.country !== potentialPeer.prefCountry) continue;
-
-        // Se passar por todas as validações, temos um match!
         matchedPeer = potentialPeer;
-        matchmakingQueue.splice(i, 1); // remove o peer da fila
+        matchmakingQueue.splice(i, 1);
         break;
+      }
+
+      if (!matchedPeer) {
+        for (let i = 0; i < matchmakingQueue.length; i++) {
+          const potentialPeer = matchmakingQueue[i];
+          if (potentialPeer.mode !== newParticipant.mode) continue;
+          if (newParticipant.prefGender !== 'any' && potentialPeer.gender !== newParticipant.prefGender) continue;
+          if (potentialPeer.prefGender !== 'any' && newParticipant.gender !== potentialPeer.prefGender) continue;
+          if (newParticipant.prefCountry !== 'any' && potentialPeer.country !== newParticipant.prefCountry) continue;
+          if (potentialPeer.prefCountry !== 'any' && newParticipant.country !== potentialPeer.prefCountry) continue;
+          matchedPeer = potentialPeer;
+          matchmakingQueue.splice(i, 1);
+          break;
+        }
       }
 
       if (matchedPeer) {
@@ -284,8 +302,12 @@ app.prepare().then(() => {
 
         console.log(`Match criado! Sala: ${roomId} entre ${newParticipant.username} e ${matchedPeer.username}`);
       } else {
-        // Sem match disponível no momento, adiciona à fila
-        matchmakingQueue.push(newParticipant);
+        // Sem match disponível no momento, adiciona à fila (premium tem prioridade)
+        if (newParticipant.premium) {
+          matchmakingQueue.unshift(newParticipant);
+        } else {
+          matchmakingQueue.push(newParticipant);
+        }
         socket.emit('queue_waiting');
       }
     });
@@ -668,10 +690,16 @@ app.prepare().then(() => {
         userSockets[disconnectedUserId].delete(socket.id);
         if (userSockets[disconnectedUserId].size === 0) {
           delete userSockets[disconnectedUserId];
-          io.emit('user_offline', { userId: disconnectedUserId });
-          setUserOnline(disconnectedUserId, false);
-          // "Visto por último" — guarda o momento do último disconnect
-          getDbPool()?.query('UPDATE "User" SET "lastSeen" = now() WHERE id = $1', [disconnectedUserId])
+          getDbPool()?.query('SELECT "invisibleMode" FROM "User" WHERE id = $1 LIMIT 1', [disconnectedUserId])
+            .then(res => {
+              const invisible = res.rows[0]?.invisibleMode;
+              if (!invisible) {
+                io.emit('user_offline', { userId: disconnectedUserId });
+                setUserOnline(disconnectedUserId, false);
+                getDbPool()?.query('UPDATE "User" SET "lastSeen" = now() WHERE id = $1', [disconnectedUserId])
+                  .catch(() => {});
+              }
+            })
             .catch(() => {});
         }
       }
@@ -755,4 +783,24 @@ app.prepare().then(() => {
   }
   setInterval(cleanupExpiredFiles, 30 * 60 * 1000);
   setTimeout(cleanupExpiredFiles, 60 * 1000);
+
+  async function cleanupExpiredPremium() {
+    const pool = getDbPool();
+    if (!pool) return;
+    try {
+      const res = await pool.query(
+        `UPDATE "User"
+         SET "premiumTier" = 'free', "premiumSince" = NULL, "premiumExpiresAt" = NULL
+         WHERE "premiumTier" = 'premium' AND "premiumExpiresAt" IS NOT NULL AND "premiumExpiresAt" < now()
+         RETURNING id, username`
+      );
+      if (res.rows.length > 0) {
+        console.log(`Premium expirado: ${res.rows.length} usuários revertidos para free`);
+      }
+    } catch (e) {
+      console.error('Erro na limpeza de premium:', e.message);
+    }
+  }
+  setInterval(cleanupExpiredPremium, 60 * 60 * 1000);
+  setTimeout(cleanupExpiredPremium, 60 * 1000);
 });

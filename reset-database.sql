@@ -36,6 +36,12 @@ CREATE TABLE "User" (
   "bio" TEXT,
   "status" TEXT,
   "lastSeen" TIMESTAMPTZ,
+  "premiumTier" TEXT NOT NULL DEFAULT 'free',
+  "premiumSince" TIMESTAMPTZ,
+  "premiumExpiresAt" TIMESTAMPTZ,
+  "lastNameChangeAt" TIMESTAMPTZ,
+  "chatTheme" TEXT,
+  "invisibleMode" BOOLEAN NOT NULL DEFAULT false,
   "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
   "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -173,6 +179,18 @@ CREATE TABLE "Warning" (
   "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE "PremiumPurchase" (
+  "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  "userId" UUID NOT NULL REFERENCES "User"(id) ON DELETE CASCADE,
+  "paypalOrderId" TEXT UNIQUE,
+  "amount" NUMERIC(10, 2) NOT NULL,
+  "currency" TEXT NOT NULL DEFAULT 'BRL',
+  "daysGranted" INTEGER NOT NULL DEFAULT 30,
+  "status" TEXT NOT NULL DEFAULT 'PENDING',
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+  "completedAt" TIMESTAMPTZ
+);
+
 -- Índices
 CREATE INDEX idx_user_custom_id ON "User"("customId");
 CREATE INDEX idx_friendship_user1 ON "Friendship"("userId1");
@@ -190,3 +208,6 @@ CREATE INDEX idx_reaction_message ON "MessageReaction"("messageId");
 CREATE INDEX idx_dmlike_msg ON "MessageLike"("messageId");
 CREATE INDEX idx_group_msg ON "GroupMessage"("groupId");
 CREATE INDEX idx_group_member ON "GroupMember"("groupId");
+CREATE INDEX idx_user_premium ON "User"("premiumTier");
+CREATE INDEX idx_premium_purchase_user ON "PremiumPurchase"("userId");
+CREATE INDEX idx_premium_purchase_order ON "PremiumPurchase"("paypalOrderId");

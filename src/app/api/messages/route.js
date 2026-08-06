@@ -95,6 +95,17 @@ export async function POST(req) {
         return NextResponse.json({ error: 'Mensagem vazia após sanitização' }, { status: 400 });
       }
 
+      // Limite de caracteres por plano
+      const premium = await sql(
+        `SELECT "premiumTier", "premiumExpiresAt" FROM "User" WHERE id = $1 LIMIT 1`,
+        [userId]
+      );
+      const isPremiumUser = premium[0]?.premiumTier === 'premium' && premium[0]?.premiumExpiresAt && new Date(premium[0].premiumExpiresAt) > new Date();
+      const maxLen = isPremiumUser ? 5000 : 1000;
+      if (cleanContent.length > maxLen) {
+        return NextResponse.json({ error: `Mensagem muito longa (máx ${maxLen} caracteres)` }, { status: 413 });
+      }
+
       // Insere no banco
       const result = await sql(
         `INSERT INTO "DirectMessage" ("senderId", "receiverId", content, type, "parentMessageId", "attachmentId")
@@ -269,6 +280,19 @@ export async function POST(req) {
       }
       if (msg[0].senderId !== userId && msg[0].receiverId !== userId) {
         return NextResponse.json({ error: 'Sem permissão' }, { status: 403 });
+      }
+      const premium = await sql(
+        `SELECT "premiumTier", "premiumExpiresAt" FROM "User" WHERE id = $1 LIMIT 1`,
+        [userId]
+      );
+      const isPremiumUser = premium[0]?.premiumTier === 'premium' && premium[0]?.premiumExpiresAt && new Date(premium[0].premiumExpiresAt) > new Date();
+      const maxPins = isPremiumUser ? 50 : 5;
+      const pinnedCount = await sql(
+        `SELECT COUNT(*) FROM "DirectMessage" WHERE ("senderId" = $1 OR "receiverId" = $1) AND "pinnedAt" IS NOT NULL`,
+        [userId]
+      );
+      if (Number(pinnedCount[0]?.count || 0) >= maxPins) {
+        return NextResponse.json({ error: `Limite de ${maxPins} mensagens fixadas no plano free. Assine premium.` }, { status: 403 });
       }
       await sql(
         `UPDATE "DirectMessage" SET "pinnedAt" = now() WHERE id = $1`,

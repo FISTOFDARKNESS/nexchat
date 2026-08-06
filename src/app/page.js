@@ -8,7 +8,7 @@ import {
   Moon, CheckSquare, Settings, AlertCircle, VolumeX, Mic, MicOff, VideoOff, Play,
   Pause,
   Plus, CheckCircle, Clock, Info, ChevronLeft, SkipForward, CheckCheck, FileText, Paperclip, Eye,
-  BarChart3, Megaphone, Search, History
+  BarChart3, Megaphone, Search, History, Crown
 } from 'lucide-react';
 
 let socket;
@@ -275,7 +275,8 @@ export default function Home() {
         const savedUser = localStorage.getItem('nexchat_user');
         if (savedUser) {
           try {
-            setUser(JSON.parse(savedUser));
+            const parsed = JSON.parse(savedUser);
+            setUser(parsed);
           } catch (e) {
             localStorage.removeItem('nexchat_user');
           }
@@ -343,6 +344,12 @@ export default function Home() {
   const [adminLogs, setAdminLogs] = useState(null);
   const [broadcastMsg, setBroadcastMsg] = useState('');
   const [announcement, setAnnouncement] = useState(null);
+
+  // --- Premium ---
+  const [premiumStatus, setPremiumStatus] = useState(null);
+  const [showPremiumScreen, setShowPremiumScreen] = useState(false);
+  const [chatTheme, setChatTheme] = useState('default');
+  const [invisibleMode, setInvisibleMode] = useState(false);
 
   // --- Denúncia ---
   const [showReportModal, setShowReportModal] = useState(false);
@@ -465,6 +472,28 @@ export default function Home() {
     setUnreadBadge(0);
   }, []);
   const [remoteStreams, setRemoteStreams] = useState({}); // peerId -> MediaStream
+
+  // --- Premium ---
+  const loadPremiumStatus = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await authedFetch('/api/premium/status');
+      const data = await res.json();
+      if (data.success) {
+        setPremiumStatus(data);
+        setChatTheme(data.chatTheme || 'default');
+        setInvisibleMode(data.invisibleMode || false);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      loadPremiumStatus();
+    }
+  }, [user, loadPremiumStatus]);
 
   // --- Refs com os valores mais recentes (para handlers do socket) ---
   const matchModeRef = useRef(matchMode);
@@ -2395,6 +2424,30 @@ export default function Home() {
     }
   };
 
+  const savePremiumSettings = async (e) => {
+    e.preventDefault();
+    if (!user) return;
+    try {
+      const res = await authedFetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatTheme, invisibleMode })
+      });
+      const data = await res.json();
+      if (data.success) {
+        const updated = { ...user, ...data.user };
+        setUser(updated);
+        localStorage.setItem('nexchat_user', JSON.stringify(updated));
+        setPremiumStatus(prev => ({ ...prev, chatTheme, invisibleMode }));
+        addToast('Configurações premium salvas!', 'success');
+      } else {
+        addToast(data.error || 'Erro ao salvar.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   // --- Adicionar amigo à chamada em andamento ---
   const addToCall = async (friend) => {
     if (!activeCallRoom) return;
@@ -2808,9 +2861,19 @@ export default function Home() {
         {/* Perfil e Logout */}
         <div style={{ padding: '16px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, cursor: 'pointer' }} onClick={() => openProfile({ friendId: user.id })}>
-            <Avatar url={user.avatarUrl} name={user.username} size={38} border="1px solid var(--gold)" />
+            <div style={{ position: 'relative' }}>
+              <Avatar url={user.avatarUrl} name={user.username} size={38} border="1px solid var(--gold)" />
+              {premiumStatus?.premium && (
+                <div style={{ position: 'absolute', top: '-6px', right: '-6px', background: 'var(--gold)', borderRadius: '50%', width: '18px', height: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Crown size={10} color="#000" />
+                </div>
+              )}
+            </div>
             <div style={{ minWidth: 0 }}>
-              <h3 style={{ fontSize: '15px', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.username}</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <h3 style={{ fontSize: '15px', color: premiumStatus?.premium ? 'var(--gold)' : 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.username}</h3>
+                {premiumStatus?.premium && <Crown size={12} style={{ color: 'var(--gold)' }} />}
+              </div>
               <span style={{ fontSize: '11px', color: 'var(--gold)', fontFamily: 'var(--font-mono)' }}>{user.customId}</span>
               {user.status && <div style={{ fontSize: '10px', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.status}</div>}
             </div>
@@ -2950,6 +3013,13 @@ export default function Home() {
               <UserPlus size={15} />
             </button>
           </div>
+          {!premiumStatus?.premium && (
+            <div style={{ padding: '0 16px', marginBottom: '10px' }}>
+              <button onClick={() => setShowPremiumScreen(true)} className="btn-primary" style={{ width: '100%', justifyContent: 'center', minHeight: '36px', fontSize: '12px', background: 'linear-gradient(135deg, #EAC847, #D97706)', color: '#000', fontWeight: '700' }}>
+                <Crown size={14} /> Premium
+              </button>
+            </div>
+          )}
           {groupsList.length === 0 ? (
             <p style={{ color: 'var(--muted)', fontSize: '12px', padding: '0 16px', fontStyle: 'italic' }}>Nenhum grupo ainda.</p>
           ) : (
@@ -4365,6 +4435,71 @@ export default function Home() {
                 Enviar Denúncia
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tela Premium */}
+      {showPremiumScreen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1400, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div className="glass-card animate-slide-in" style={{ maxWidth: '460px', width: '100%', border: '1px solid var(--gold)', padding: '24px', textAlign: 'center' }}>
+            <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: 'var(--gold-soft)', border: '2px solid var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+              <Crown size={32} style={{ color: 'var(--gold)' }} />
+            </div>
+            <h2 style={{ fontSize: '22px', color: 'var(--gold)', marginBottom: '8px' }}>NexChat Premium</h2>
+            <p style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '20px', lineHeight: '1.5' }}>
+              Desbloqueie recursos exclusivos e aproveite sem limites.
+            </p>
+
+            {premiumStatus?.premium ? (
+              <div style={{ background: 'var(--bg-3)', border: '1px solid var(--gold)', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                  <CheckCircle size={16} style={{ color: 'var(--green)' }} />
+                  <span style={{ fontSize: '16px', fontWeight: '700', color: 'var(--gold)' }}>Plano Ativo</span>
+                </div>
+                <p style={{ fontSize: '12px', color: 'var(--text)' }}>Expira em: {premiumStatus.premiumExpiresAt ? new Date(premiumStatus.premiumExpiresAt).toLocaleString('pt-BR') : '-'}</p>
+              </div>
+            ) : (
+              <div style={{ background: 'var(--bg-3)', border: '1px solid var(--line)', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                  <span style={{ fontSize: '22px', fontWeight: '700', color: '#fff' }}>R$ 34,99</span>
+                  <span style={{ fontSize: '12px', color: 'var(--muted)' }}>/mês</span>
+                </div>
+                <ul style={{ fontSize: '12px', color: 'var(--text)', lineHeight: '1.7', paddingLeft: '18px', margin: 0 }}>
+                  <li>Upload até 50 MB</li>
+                  <li>Grupos ilimitados + até 100 membros</li>
+                  <li>Mensagens de até 5000 caracteres</li>
+                  <li>Até 50 mensagens fixadas</li>
+                  <li>Prioridade no matchmaking</li>
+                  <li>Chamadas em grupo com até 8 pessoas</li>
+                  <li>Mudar nome a qualquer momento</li>
+                  <li>Modo invisível + temas personalizados</li>
+                  <li>Exportar histórico do chat</li>
+                </ul>
+                <button onClick={async () => {
+                  setBuying(true);
+                  try {
+                    const res = await authedFetch('/api/premium/checkout', { method: 'POST' });
+                    const data = await res.json();
+                    if (data.success && data.approveUrl) {
+                      window.location.href = data.approveUrl;
+                    } else {
+                      addToast(data.error || 'Erro ao iniciar pagamento', 'error');
+                      setBuying(false);
+                    }
+                  } catch (e) {
+                    addToast('Erro ao conectar', 'error');
+                    setBuying(false);
+                  }
+                }} disabled={buying} className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: '16px', minHeight: '44px', background: 'var(--gold)', color: '#000', fontWeight: '700' }}>
+                  {buying ? 'Redirecionando...' : 'Assinar Premium'}
+                </button>
+              </div>
+            )}
+
+            <button onClick={() => setShowPremiumScreen(false)} className="btn-secondary" style={{ minHeight: '40px' }}>
+              Fechar
+            </button>
           </div>
         </div>
       )}

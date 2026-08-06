@@ -18,7 +18,7 @@ export async function GET(req) {
       return NextResponse.json({ error: 'Informe customId, username ou id' }, { status: 400 });
     }
 
-    const fields = 'id, username, "customId", "avatarUrl", country, gender, "isOnline", bio, status, "lastSeen", "createdAt"';
+    const fields = 'id, username, "customId", "avatarUrl", country, gender, "isOnline", bio, status, "lastSeen", "premiumTier", "premiumSince", "premiumExpiresAt", "chatTheme", "invisibleMode", "createdAt"';
     let rows = [];
 
     if (customId) {
@@ -49,7 +49,7 @@ export async function POST(req) {
     }
     const userId = auth.id;
     const body = await req.json();
-    const { bio, status, avatarUrl } = body;
+    const { bio, status, avatarUrl, username, chatTheme, invisibleMode } = body;
 
     const sets = [];
     const values = [];
@@ -65,6 +65,33 @@ export async function POST(req) {
       sets.push('"avatarUrl" = $' + (values.length + 1));
       values.push(avatarUrl || null);
     }
+    if (typeof chatTheme === 'string') {
+      sets.push('"chatTheme" = $' + (values.length + 1));
+      values.push(chatTheme.trim().slice(0, 40) || null);
+    }
+    if (typeof invisibleMode === 'boolean') {
+      sets.push('"invisibleMode" = $' + (values.length + 1));
+      values.push(invisibleMode);
+    }
+    if (typeof username === 'string' && username.trim()) {
+      const premium = await sql(
+        `SELECT "premiumTier", "premiumExpiresAt", "lastNameChangeAt" FROM "User" WHERE id = $1 LIMIT 1`,
+        [userId]
+      );
+      const isPremiumUser = premium[0]?.premiumTier === 'premium' && premium[0]?.premiumExpiresAt && new Date(premium[0].premiumExpiresAt) > new Date();
+      if (!isPremiumUser) {
+        const lastChange = premium[0]?.lastNameChangeAt;
+        if (lastChange) {
+          const diff = Date.now() - new Date(lastChange).getTime();
+          if (diff < 30 * 24 * 60 * 60 * 1000) {
+            return NextResponse.json({ error: 'Nome pode ser alterado apenas 1x por mês. Assine premium para mais liberdade.' }, { status: 403 });
+          }
+        }
+      }
+      sets.push('username = $' + (values.length + 1));
+      values.push(username.trim().slice(0, 30));
+      sets.push('"lastNameChangeAt" = now()');
+    }
     if (sets.length === 0) {
       return NextResponse.json({ error: 'Nada para atualizar' }, { status: 400 });
     }
@@ -72,7 +99,7 @@ export async function POST(req) {
     values.push(userId);
 
     const result = await sql(
-      `UPDATE "User" SET ${sets.join(', ')} WHERE id = $${values.length} RETURNING id, username, "customId", "avatarUrl", country, gender, "isOnline", bio, status, "lastSeen"`,
+      `UPDATE "User" SET ${sets.join(', ')} WHERE id = $${values.length} RETURNING id, username, "customId", "avatarUrl", country, gender, "isOnline", bio, status, "lastSeen", "premiumTier", "chatTheme", "invisibleMode"`,
       values
     );
     return NextResponse.json({ success: true, user: result[0] });

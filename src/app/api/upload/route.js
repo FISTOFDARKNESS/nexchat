@@ -8,11 +8,25 @@ import { storageUpload } from '@/lib/storage';
 
 const MAX_SIZE = {
   avatar: 2 * 1024 * 1024,   // 2 MB
-  image: 5 * 1024 * 1024,    // 5 MB (foto)
-  video: 10 * 1024 * 1024,   // 10 MB (vídeo)
-  audio: 10 * 1024 * 1024,   // 10 MB (áudio/voz)
-  file: 10 * 1024 * 1024     // 10 MB (arquivos)
+  image: 25 * 1024 * 1024,   // 25 MB free / 50 MB premium
+  video: 25 * 1024 * 1024,   // 25 MB free / 50 MB premium
+  audio: 25 * 1024 * 1024,   // 25 MB free / 50 MB premium
+  file: 25 * 1024 * 1024     // 25 MB free / 50 MB premium
 };
+
+async function getPremiumLimit(userId) {
+  const user = await sql('SELECT "premiumTier", "premiumExpiresAt" FROM "User" WHERE id = $1 LIMIT 1', [userId]);
+  const u = user[0];
+  if (u && u.premiumTier === 'premium' && u.premiumExpiresAt && new Date(u.premiumExpiresAt) > new Date()) {
+    return {
+      image: 50 * 1024 * 1024,
+      video: 50 * 1024 * 1024,
+      audio: 50 * 1024 * 1024,
+      file: 50 * 1024 * 1024,
+    };
+  }
+  return MAX_SIZE;
+}
 
 function extFromMime(mime) {
   const map = {
@@ -54,10 +68,13 @@ export async function POST(req) {
 
     let max;
     if (purpose === 'avatar') max = MAX_SIZE.avatar;
-    else if (kind === 'image') max = MAX_SIZE.image;
-    else if (kind === 'video') max = MAX_SIZE.video;
-    else if (kind === 'audio') max = MAX_SIZE.audio;
-    else max = MAX_SIZE.file;
+    else {
+      const limits = await getPremiumLimit(userId);
+      if (kind === 'image') max = limits.image;
+      else if (kind === 'video') max = limits.video;
+      else if (kind === 'audio') max = limits.audio;
+      else max = limits.file;
+    }
 
     if (bytes.length > max) {
       return NextResponse.json({ error: `Arquivo muito grande (máx ${Math.round(max / 1024 / 1024)} MB)` }, { status: 413 });

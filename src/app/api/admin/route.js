@@ -2,6 +2,7 @@ import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import { getAuthUser, verifyUserToken } from '@/lib/session';
 import { storageDelete } from '@/lib/storage';
+import { grantPremium, revokePremium } from '@/lib/premium';
 
 // Função para validar se o usuário é administrador
 async function checkAdmin(userId) {
@@ -120,7 +121,7 @@ export async function GET(req) {
       const q = (searchParams.get('q') || '').trim();
       const users = await sql(
         `SELECT u.id, u.username, u."customId", u.email, u.role, u."isGuest", u."isOnline", u.gender, u.country,
-                u."lastSeen", u."lastIp", u."createdAt",
+                u."lastSeen", u."lastIp", u."premiumTier", u."premiumExpiresAt", u."createdAt",
                 (SELECT COUNT(*) FROM "Warning" w WHERE w."userId" = u.id) AS "warningCount",
                 (SELECT reason FROM "Ban" b WHERE b."userId" = u.id AND (b."expiresAt" IS NULL OR b."expiresAt" > now())
                  ORDER BY b."createdAt" DESC LIMIT 1) AS "activeBanReason"
@@ -303,8 +304,7 @@ export async function POST(req) {
     }
 
     // 3. ALTERAR FUNÇÃO (ATRIBUIR ADMIN)
-    if (action === 'set_role') {
-      const { role } = body; // 'user', 'moderator', 'admin'
+    if (action === 'set_role') {      const { role } = body; // 'user', 'moderator', 'admin'
       if (!role || !['user', 'moderator', 'admin'].includes(role)) {
         return NextResponse.json({ error: 'Role inválido' }, { status: 400 });
       }
@@ -318,6 +318,22 @@ export async function POST(req) {
       );
       await logAdminAction(adminUserId, 'set_role', targetUserId, { role });
       return NextResponse.json({ success: true, user: updated[0] });
+    }
+
+    // 3.5 CONCEDER PREMIUM
+    if (action === 'grant_premium') {
+      const { days } = body;
+      const daysNum = Math.max(1, parseInt(days, 10) || 30);
+      const updated = await grantPremium(targetUserId, daysNum);
+      await logAdminAction(adminUserId, 'grant_premium', targetUserId, { days: daysNum });
+      return NextResponse.json({ success: true, message: `Premium concedido por ${daysNum} dias`, user: updated });
+    }
+
+    // 3.6 REVOGAR PREMIUM
+    if (action === 'revoke_premium') {
+      const updated = await revokePremium(targetUserId);
+      await logAdminAction(adminUserId, 'revoke_premium', targetUserId, {});
+      return NextResponse.json({ success: true, message: 'Premium revogado', user: updated });
     }
 
     // 4. REMOVER ADVERTÊNCIA

@@ -15,6 +15,12 @@ CREATE TABLE "User" (
   "status" TEXT,
   "lastSeen" TIMESTAMPTZ,
   "lastIp" TEXT,
+  "premiumTier" TEXT NOT NULL DEFAULT 'free',
+  "premiumSince" TIMESTAMPTZ,
+  "premiumExpiresAt" TIMESTAMPTZ,
+  "lastNameChangeAt" TIMESTAMPTZ,
+  "chatTheme" TEXT,
+  "invisibleMode" BOOLEAN NOT NULL DEFAULT false,
   "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
   "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -72,6 +78,7 @@ CREATE TABLE "DirectMessage" (
 CREATE TABLE "Group" (
   "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   "name" TEXT NOT NULL,
+  "description" TEXT,
   "ownerId" UUID NOT NULL REFERENCES "User"(id) ON DELETE CASCADE,
   "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -159,6 +166,18 @@ CREATE TABLE "EmailBan" (
 
 CREATE INDEX idx_adminlog_created ON "AdminLog"("createdAt" DESC);
 CREATE INDEX idx_adminlog_target ON "AdminLog"("targetUserId");
+
+CREATE TABLE "PremiumPurchase" (
+  "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  "userId" UUID NOT NULL REFERENCES "User"(id) ON DELETE CASCADE,
+  "paypalOrderId" TEXT UNIQUE,
+  "amount" NUMERIC(10, 2) NOT NULL,
+  "currency" TEXT NOT NULL DEFAULT 'BRL',
+  "daysGranted" INTEGER NOT NULL DEFAULT 30,
+  "status" TEXT NOT NULL DEFAULT 'PENDING',
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+  "completedAt" TIMESTAMPTZ
+);
 
 CREATE INDEX idx_user_custom_id ON "User"("customId");
 CREATE INDEX idx_friendship_user1 ON "Friendship"("userId1");

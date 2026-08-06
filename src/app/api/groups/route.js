@@ -92,7 +92,22 @@ export async function POST(req) {
         return NextResponse.json({ error: 'Nome do grupo inválido' }, { status: 400 });
       }
 
+      const premium = await sql(
+        `SELECT "premiumTier", "premiumExpiresAt" FROM "User" WHERE id = $1 LIMIT 1`,
+        [userId]
+      );
+      const isPremiumUser = premium[0]?.premiumTier === 'premium' && premium[0]?.premiumExpiresAt && new Date(premium[0].premiumExpiresAt) > new Date();
+      if (!isPremiumUser) {
+        const count = await sql('SELECT COUNT(*) FROM "Group" WHERE "ownerId" = $1', [userId]);
+        if (Number(count[0]?.count || 0) >= 3) {
+          return NextResponse.json({ error: 'Limite de 3 grupos no plano free. Assine premium para criar mais.' }, { status: 403 });
+        }
+      }
+
       const members = [...new Set([userId, ...memberIds])];
+      if (members.length > 20 && !isPremiumUser) {
+        return NextResponse.json({ error: 'Limite de 20 membros no plano free. Assine premium para adicionar mais.' }, { status: 403 });
+      }
       const result = await sql(
         `INSERT INTO "Group" (name, "ownerId") VALUES ($1, $2) RETURNING *`,
         [cleanName, userId]
@@ -119,6 +134,17 @@ export async function POST(req) {
       );
       if (me.length === 0 || !['owner', 'admin'].includes(me[0].role)) {
         return NextResponse.json({ error: 'Sem permissão para adicionar membros' }, { status: 403 });
+      }
+      const premium = await sql(
+        `SELECT "premiumTier", "premiumExpiresAt" FROM "User" WHERE id = $1 LIMIT 1`,
+        [userId]
+      );
+      const isPremiumUser = premium[0]?.premiumTier === 'premium' && premium[0]?.premiumExpiresAt && new Date(premium[0].premiumExpiresAt) > new Date();
+      if (!isPremiumUser) {
+        const count = await sql('SELECT COUNT(*) FROM "GroupMember" WHERE "groupId" = $1', [groupId]);
+        if (Number(count[0]?.count || 0) >= 20) {
+          return NextResponse.json({ error: 'Limite de 20 membros no plano free. Assine premium.' }, { status: 403 });
+        }
       }
       await sql(
         `INSERT INTO "GroupMember" ("groupId", "userId") VALUES ($1, $2) ON CONFLICT DO NOTHING`,
