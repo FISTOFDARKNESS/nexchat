@@ -369,22 +369,23 @@ app.prepare().then(() => {
     });
 
     // 3. SINALIZAÇÃO WEBRTC (CHAMADA DE VÍDEO/ÁUDIO P2P)
+    // data: { roomId, from, to, offer|answer|candidate } — 'to' é o destinatário do mesh
     socket.on('webrtc_offer', (data) => {
-      // data: { roomId, offer }
-      const { roomId, offer } = data;
-      socket.to(roomId).emit('webrtc_offer', { offer });
+      const { roomId, from, to, offer } = data;
+      if (!roomId || !from || !to || !offer) return;
+      socket.to(roomId).emit('webrtc_offer', { roomId, from, to, offer });
     });
 
     socket.on('webrtc_answer', (data) => {
-      // data: { roomId, answer }
-      const { roomId, answer } = data;
-      socket.to(roomId).emit('webrtc_answer', { answer });
+      const { roomId, from, to, answer } = data;
+      if (!roomId || !from || !to || !answer) return;
+      socket.to(roomId).emit('webrtc_answer', { roomId, from, to, answer });
     });
 
     socket.on('webrtc_ice_candidate', (data) => {
-      // data: { roomId, candidate }
-      const { roomId, candidate } = data;
-      socket.to(roomId).emit('webrtc_ice_candidate', { candidate });
+      const { roomId, from, to, candidate } = data;
+      if (!roomId || !from || !to) return;
+      socket.to(roomId).emit('webrtc_ice_candidate', { roomId, from, to, candidate });
     });
 
     // 4. CHAT PRIVADO COM AMIGOS (WHATSAPP/DISCORD)
@@ -714,6 +715,7 @@ app.prepare().then(() => {
     if (!pool) return;
     const diskPath = (storagePath) => {
       const parts = String(storagePath || '').replace(/\\/g, '/').split('/').filter(Boolean);
+      if (parts[0] === 'uploads') parts.shift();
       return path.join(UPLOADS_DIR, ...parts);
     };
     try {

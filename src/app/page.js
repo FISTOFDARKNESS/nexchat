@@ -104,11 +104,13 @@ function MediaPreview({ msg }) {
 }
 
 function Avatar({ url, name, size = 36, fontSize, border = '1px solid var(--line)', bg = 'var(--bg-3)', color }) {
-  if (url) {
+  const [broken, setBroken] = useState(false);
+  if (url && !broken) {
     return (
       <img
         src={url}
         alt={name}
+        onError={() => setBroken(true)}
         style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', border, flexShrink: 0 }}
       />
     );
@@ -394,8 +396,10 @@ export default function Home() {
   const callTypeRef = useRef(callType);
   const inRandomChatRef = useRef(inRandomChat);
   const callListenersRef = useRef([]);
+  const userRef = useRef(null);
 
   useEffect(() => {
+    userRef.current = user;
     matchModeRef.current = matchMode;
     useMediaRef.current = useMedia;
     randomRoomIdRef.current = randomRoomId;
@@ -774,7 +778,7 @@ export default function Home() {
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        socket.emit('webrtc_ice_candidate', { roomId, peerId, candidate: event.candidate });
+        socket.emit('webrtc_ice_candidate', { roomId, from: userRef.current?.id, to: peerId, candidate: event.candidate });
       }
     };
 
@@ -788,7 +792,7 @@ export default function Home() {
       (async () => {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        socket.emit('webrtc_offer', { roomId, peerId, offer });
+        socket.emit('webrtc_offer', { roomId, from: userRef.current?.id, to: peerId, offer });
       })().catch(err => console.error('Erro ao criar oferta WebRTC:', err));
     }
 
@@ -891,24 +895,25 @@ export default function Home() {
     });
 
     socket.on('webrtc_offer', async (data) => {
-      const { roomId, offer, peerId } = data;
-      if (!peerId || !roomId) return;
+      const { roomId, from, to, offer } = data;
+      if (!from || !roomId || to !== user.id) return;
       const rId = randomRoomIdRef.current || activeCallRoomRef.current;
       if (rId !== roomId) return;
-      const pc = getOrCreatePC(peerId, roomId, 'receiver', callTypeRef.current === 'audio');
+      const pc = getOrCreatePC(from, roomId, 'receiver', callTypeRef.current === 'audio');
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        socket.emit('webrtc_answer', { roomId, peerId, answer });
+        socket.emit('webrtc_answer', { roomId, from: user.id, to: from, answer });
       } catch (err) {
         console.error('Erro ao processar webrtc_offer:', err);
       }
     });
 
     socket.on('webrtc_answer', async (data) => {
-      const { peerId, answer } = data;
-      const pc = peerId ? pcsRef.current[peerId] : null;
+      const { from, to, answer } = data;
+      if (!from || to !== user.id) return;
+      const pc = pcsRef.current[from];
       if (pc) {
         try {
           await pc.setRemoteDescription(new RTCSessionDescription(answer));
@@ -919,8 +924,9 @@ export default function Home() {
     });
 
     socket.on('webrtc_ice_candidate', async (data) => {
-      const { peerId, candidate } = data;
-      const pc = peerId ? pcsRef.current[peerId] : null;
+      const { from, to, candidate } = data;
+      if (!from || to !== user.id) return;
+      const pc = pcsRef.current[from];
       if (pc && candidate) {
         try {
           await pc.addIceCandidate(new RTCIceCandidate(candidate));
@@ -986,8 +992,10 @@ export default function Home() {
     // Mídia de visualização única foi aberta pelo outro lado: some da conversa
     socket.on('view_once_viewed', (data) => {
       if (data && data.messageId) {
-        setMessages(prev => prev.filter(m => m.id !== data.messageId));
-        addToast('Mídia de visualização única visualizada e removida.', 'info');
+        // Pequeno atraso para quem visualizou conseguir ver a mídia
+        setTimeout(() => {
+          setMessages(prev => prev.filter(m => m.id !== data.messageId));
+        }, 2000);
       }
     });
 
@@ -1943,7 +1951,8 @@ export default function Home() {
       // O servidor responde com call_participants (lista de participantes já na sala);
       // nele criamos os PCs chamadores. Em chamada de grupo não há peer para o host (só via eventos).
       if (!incomingCall.isGroup) {
-        getOrCreatePC(incomingCall.callerId, callRoomId, 'caller', type === 'audio');
+        // 'callee': não cria oferta (quem chama é quem oferece) -> evita glare de ofertas cruzadas
+        getOrCreatePC(incomingCall.callerId, callRoomId, 'callee', type === 'audio');
       }
     }
   };

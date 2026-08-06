@@ -32,7 +32,7 @@ export async function GET(req, ctx) {
       return NextResponse.json({ error: 'Arquivo expirado' }, { status: 404 });
     }
 
-    // Controle de acesso: dono, participantes do DM ou membros do grupo
+    // Controle de acesso: dono, participantes do DM, membros do grupo ou avatar de um amigo
     let allowed = isOwner;
     if (!allowed) {
       const dm = await sql(
@@ -51,7 +51,36 @@ export async function GET(req, ctx) {
       allowed = gm.length > 0;
     }
     if (!allowed) {
+      // Avatar de outro usuário: libera para quem tem amizade (qualquer status) e não está bloqueado
+      const av = await sql(
+        `SELECT 1 FROM "User" WHERE "avatarUrl" = '/files/' || $1 AND id = $2 LIMIT 1`,
+        [id, file.ownerId]
+      );
+      if (av.length > 0) {
+        const fr = await sql(
+          `SELECT 1 FROM "Friendship"
+           WHERE ("userId1" = $1 AND "userId2" = $2) OR ("userId1" = $2 AND "userId2" = $1) LIMIT 1`,
+          [userId, file.ownerId]
+        );
+        const bl = await sql(
+          `SELECT 1 FROM "Block"
+           WHERE ("blockerId" = $1 AND "blockedId" = $2) OR ("blockerId" = $2 AND "blockedId" = $1) LIMIT 1`,
+          [userId, file.ownerId]
+        );
+        allowed = fr.length > 0 && bl.length === 0;
+      }
+    }
+    if (!allowed) {
       return NextResponse.json({ error: 'Sem permissão para acessar este arquivo' }, { status: 403 });
+    }
+
+    // Lê o arquivo ANTES de marcar como visto (se sumiu do disco, não consome o view-once)
+    let data;
+    try {
+      data = await readFile(path.join(process.cwd(), file.storagePath));
+    } catch {
+      await sql('DELETE FROM "File" WHERE id = $1', [id]);
+      return NextResponse.json({ error: 'Arquivo não encontrado' }, { status: 404 });
     }
 
     // View-once: primeira visualização de um não-dono marca como visto
@@ -74,14 +103,6 @@ export async function GET(req, ctx) {
       if (dm.length > 0) {
         await sql('DELETE FROM "DirectMessage" WHERE id = $1', [dm[0].id]);
       }
-    }
-
-    let data;
-    try {
-      data = await readFile(path.join(process.cwd(), file.storagePath));
-    } catch {
-      await sql('DELETE FROM "File" WHERE id = $1', [id]);
-      return NextResponse.json({ error: 'Arquivo não encontrado' }, { status: 404 });
     }
 
     // View-once visualizado: agenda a exclusão do arquivo do servidor
