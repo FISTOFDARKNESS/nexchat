@@ -2,6 +2,29 @@ import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import { signUserToken, setSessionCookie } from '@/lib/session';
 
+function getClientIp(req) {
+  const fwd = req.headers.get('x-forwarded-for');
+  if (fwd) return fwd.split(',')[0].trim();
+  return req.headers.get('x-real-ip') || null;
+}
+
+// Registra o IP do último login (falha silenciosa se a coluna não existir)
+function touchLastIp(userId, ip) {
+  if (!userId || !ip) return;
+  sql('UPDATE "User" SET "lastIp" = $1 WHERE id = $2', [ip, userId]).catch(() => {});
+}
+
+// Verifica se o e-mail está na lista de e-mails banidos
+async function emailBanned(email) {
+  if (!email) return false;
+  try {
+    const res = await sql('SELECT reason FROM "EmailBan" WHERE email = $1 LIMIT 1', [email]);
+    return res.length > 0 ? res[0].reason : null;
+  } catch {
+    return false;
+  }
+}
+
 // Função para gerar um customId único (ex: user#4829)
 async function generateUniqueCustomId(baseName) {
   const cleanName = baseName.replace(/[^a-zA-Z0-9]/g, '').toLowerCase().slice(0, 15);
@@ -19,6 +42,7 @@ async function generateUniqueCustomId(baseName) {
 
 export async function POST(req) {
   try {
+    const ip = getClientIp(req);
     const body = await req.json();
     const { action, username, email, gender, country, avatarUrl, googleId } = body;
 
@@ -38,6 +62,7 @@ export async function POST(req) {
       );
 
       const user = result[0];
+      touchLastIp(user.id, ip);
       // Cookie de sessão é definido imediatamente no login
       return setSessionCookie(NextResponse.json({ success: true, user, token: signUserToken(user) }), user);
     }
@@ -71,10 +96,16 @@ export async function POST(req) {
            RETURNING *`,
           [avatarUrl || null, user.id]
         );
+        touchLastIp(user.id, ip);
         return setSessionCookie(NextResponse.json({ success: true, user: updated[0], token: signUserToken(updated[0]) }), updated[0]);
       }
 
-      // Se não existir, cria um novo
+      // Se não existir, verifica ban por e-mail antes de criar
+      const bannedReason = await emailBanned(email);
+      if (bannedReason) {
+        return NextResponse.json({ error: `Este e-mail está banido: ${bannedReason}` }, { status: 403 });
+      }
+
       const customId = await generateUniqueCustomId(username);
       const result = await sql(
         `INSERT INTO "User" ("customId", "username", "email", "isGuest", "gender", "country", "avatarUrl", "role")
@@ -84,6 +115,7 @@ export async function POST(req) {
       );
 
       const user = result[0];
+      touchLastIp(user.id, ip);
       return setSessionCookie(NextResponse.json({ success: true, user, token: signUserToken(user) }), user);
     }
 

@@ -14,6 +14,7 @@ CREATE TABLE "User" (
   "bio" TEXT,
   "status" TEXT,
   "lastSeen" TIMESTAMPTZ,
+  "lastIp" TEXT,
   "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
   "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -139,6 +140,25 @@ CREATE TABLE "Warning" (
   "reason" TEXT NOT NULL,
   "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE "AdminLog" (
+  "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  "adminId" UUID REFERENCES "User"(id) ON DELETE SET NULL,
+  "action" TEXT NOT NULL,
+  "targetUserId" UUID REFERENCES "User"(id) ON DELETE SET NULL,
+  "details" JSONB,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE "EmailBan" (
+  "email" TEXT PRIMARY KEY,
+  "bannedBy" UUID REFERENCES "User"(id) ON DELETE SET NULL,
+  "reason" TEXT NOT NULL,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_adminlog_created ON "AdminLog"("createdAt" DESC);
+CREATE INDEX idx_adminlog_target ON "AdminLog"("targetUserId");
 
 CREATE INDEX idx_user_custom_id ON "User"("customId");
 CREATE INDEX idx_friendship_user1 ON "Friendship"("userId1");

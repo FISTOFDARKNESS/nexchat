@@ -2,6 +2,27 @@ import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import { consumeOAuthState, setSessionCookie } from '@/lib/session';
 
+function getClientIp(req) {
+  const fwd = req.headers.get('x-forwarded-for');
+  if (fwd) return fwd.split(',')[0].trim();
+  return req.headers.get('x-real-ip') || null;
+}
+
+function touchLastIp(userId, ip) {
+  if (!userId || !ip) return;
+  sql('UPDATE "User" SET "lastIp" = $1 WHERE id = $2', [ip, userId]).catch(() => {});
+}
+
+async function emailBanned(email) {
+  if (!email) return false;
+  try {
+    const res = await sql('SELECT reason FROM "EmailBan" WHERE email = $1 LIMIT 1', [email]);
+    return res.length > 0 ? res[0].reason : null;
+  } catch {
+    return false;
+  }
+}
+
 // Função para gerar um customId único (ex: user#4829)
 async function generateUniqueCustomId(baseName) {
   const cleanName = baseName.replace(/[^a-zA-Z0-9]/g, '').toLowerCase().slice(0, 15);
@@ -19,6 +40,7 @@ async function generateUniqueCustomId(baseName) {
 
 export async function GET(req) {
   try {
+    const ip = getClientIp(req);
     const proto = req.headers.get('x-forwarded-proto') || new URL(req.url).protocol.slice(0, -1);
     const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || new URL(req.url).host;
     const baseOrigin = `${proto}://${host}`;
@@ -100,9 +122,14 @@ export async function GET(req) {
          RETURNING *`,
         [avatarUrl, user.id]
       );
+      touchLastIp(user.id, ip);
       user = updated[0];
     } else {
-      // Cria um novo usuário
+      // Cria um novo usuário — verifica antes se o e-mail está banido
+      const bannedReason = await emailBanned(email);
+      if (bannedReason) {
+        return NextResponse.redirect(`${origin}/?auth_error=${encodeURIComponent('Este e-mail está banido: ' + bannedReason)}`);
+      }
       const customId = await generateUniqueCustomId(username);
       const result = await sql(
         `INSERT INTO "User" ("customId", "username", "email", "isGuest", "gender", "country", "avatarUrl", "role")
@@ -111,6 +138,7 @@ export async function GET(req) {
         [customId, username, email, avatarUrl]
       );
       user = result[0];
+      touchLastIp(user.id, ip);
     }
 
     // 4. Redirecionar de volta para a Home com o cookie de sessão já definido

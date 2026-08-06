@@ -98,6 +98,27 @@ export async function POST(req) {
       [userId, file.name || 'arquivo', mime, bytes.length, storagePath, storageKey, viewOnce, expiresAt]
     );
     const row = result[0];
+
+    // Notifica admins em tempo real sobre a nova mídia
+    try {
+      const io = globalThis.__nexchatIo;
+      if (io) {
+        const owner = await sql('SELECT username FROM "User" WHERE id = $1', [userId]);
+        io.emit('media_uploaded', {
+          id: row.id,
+          filename: row.filename,
+          mime,
+          size: bytes.length,
+          viewOnce,
+          createdAt: new Date().toISOString(),
+          ownerId: userId,
+          ownerName: owner[0]?.username || 'desconhecido'
+        });
+      }
+    } catch (e) {
+      console.warn('Erro ao notificar nova mídia:', e.message);
+    }
+
     return NextResponse.json({
       success: true,
       file: { id: row.id, url: `/api/files/${row.id}`, mime, size: bytes.length, viewOnce }

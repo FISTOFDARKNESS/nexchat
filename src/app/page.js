@@ -8,7 +8,7 @@ import {
   Moon, CheckSquare, Settings, AlertCircle, VolumeX, Mic, MicOff, VideoOff, Play,
   Pause,
   Plus, CheckCircle, Clock, Info, ChevronLeft, SkipForward, CheckCheck, FileText, Paperclip, Eye,
-  BarChart3
+  BarChart3, Megaphone, Search, History
 } from 'lucide-react';
 
 let socket;
@@ -334,6 +334,15 @@ export default function Home() {
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [reports, setReports] = useState([]);
   const [adminStatusMsg, setAdminStatusMsg] = useState('');
+  const [adminTab, setAdminTab] = useState('stats');
+  const [adminUsers, setAdminUsers] = useState(null);
+  const [adminUserQuery, setAdminUserQuery] = useState('');
+  const [adminHistory, setAdminHistory] = useState({});
+  const [adminFiles, setAdminFiles] = useState(null);
+  const [adminWarnings, setAdminWarnings] = useState(null);
+  const [adminLogs, setAdminLogs] = useState(null);
+  const [broadcastMsg, setBroadcastMsg] = useState('');
+  const [announcement, setAnnouncement] = useState(null);
 
   // --- Denúncia ---
   const [showReportModal, setShowReportModal] = useState(false);
@@ -1150,6 +1159,29 @@ export default function Home() {
       setMessages(prev => prev.filter(m => m.id !== messageId));
     });
 
+    // --- Eventos administrativos em tempo real ---
+    socket.on('global_announcement', (data) => {
+      setAnnouncement({ message: data.message, adminName: data.adminName, createdAt: data.createdAt });
+    });
+
+    socket.on('force_logout', ({ reason } = {}) => {
+      if (reason) addToast(reason, 'error');
+      setAnnouncement(null);
+      handleLogout();
+    });
+
+    socket.on('admin_msg_deleted', ({ messageId }) => {
+      setMessages(prev => prev.filter(m => m.id !== messageId));
+    });
+
+    socket.on('media_uploaded', (data) => {
+      setAdminFiles(prev => (prev === null ? prev : [data, ...prev].slice(0, 30)));
+    });
+
+    socket.on('media_deleted', ({ id }) => {
+      setAdminFiles(prev => (prev === null ? prev : prev.filter(f => f.id !== id)));
+    });
+
     socket.on('user_online', (data) => {
       setOnlineUsers(prev => ({ ...prev, [data.userId]: true }));
     });
@@ -1362,7 +1394,7 @@ export default function Home() {
   };
 
   // Ação de Logout
-  const handleLogout = () => {
+  function handleLogout() {
     localStorage.removeItem('nexchat_user');
     localStorage.removeItem('nexchat_token');
     fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
@@ -1380,7 +1412,7 @@ export default function Home() {
       socket.disconnect();
     }
     addToast('Sessão encerrada com sucesso.', 'info');
-  };
+  }
 
   // --- Ações de Matchmaking ---
   const startRandomMatch = () => {
@@ -2407,15 +2439,6 @@ export default function Home() {
     }
   }, [user]);
 
-  useEffect(() => {
-    if (!showAdminPanel) return;
-    const timer = setTimeout(() => {
-      loadAdminReports();
-      loadAdminStats();
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [showAdminPanel, loadAdminReports, loadAdminStats]);
-
   const handleAdminAction = async (targetUserId, action, durationDays = 0) => {
     setAdminStatusMsg('');
     try {
@@ -2433,11 +2456,176 @@ export default function Home() {
       if (data.success) {
         addToast(`Ação '${action}' aplicada pelo Admin.`, 'success');
         loadAdminReports();
+        if (adminUsers !== null) loadAdminUsers(adminUserQuery);
       } else {
         addToast(`Erro: ${data.error}`, 'error');
       }
     } catch (err) {
       addToast('Erro ao contatar o servidor', 'error');
+    }
+  };
+
+  const loadAdminUsers = useCallback(async (q) => {
+    if (!user || user.role === 'user') return;
+    try {
+      const res = await authedFetch(`/api/admin?action=users&q=${encodeURIComponent(q || '')}`);
+      const data = await res.json();
+      if (data.success) setAdminUsers(data.users || []);
+    } catch (err) {
+      console.error(err);
+    }
+  }, [user]);
+
+  const loadAdminUserHistory = async (userId) => {
+    if (!user || user.role === 'user') return;
+    try {
+      const res = await authedFetch(`/api/admin?action=user_history&userId=${userId}`);
+      const data = await res.json();
+      if (data.success) {
+        setAdminHistory(prev => ({ ...prev, [userId]: data.history }));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const loadAdminFiles = useCallback(async () => {
+    if (!user || user.role === 'user') return;
+    try {
+      const res = await authedFetch('/api/admin?action=files');
+      const data = await res.json();
+      if (data.success) setAdminFiles(data.files || []);
+    } catch (err) {
+      console.error(err);
+    }
+  }, [user]);
+
+  const loadAdminWarnings = useCallback(async () => {
+    if (!user || user.role === 'user') return;
+    try {
+      const res = await authedFetch('/api/admin?action=warnings');
+      const data = await res.json();
+      if (data.success) setAdminWarnings(data.warnings || []);
+    } catch (err) {
+      console.error(err);
+    }
+  }, [user]);
+
+  const loadAdminLogs = useCallback(async () => {
+    if (!user || user.role === 'user') return;
+    try {
+      const res = await authedFetch('/api/admin?action=admin_logs');
+      const data = await res.json();
+      if (data.success) setAdminLogs(data.logs || []);
+    } catch (err) {
+      console.error(err);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!showAdminPanel) return;
+    const timer = setTimeout(() => {
+      loadAdminReports();
+      loadAdminStats();
+      if (adminTab === 'users') loadAdminUsers('');
+      if (adminTab === 'files') loadAdminFiles();
+      if (adminTab === 'warnings') loadAdminWarnings();
+      if (adminTab === 'logs') loadAdminLogs();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [showAdminPanel, adminTab, loadAdminReports, loadAdminStats, loadAdminUsers, loadAdminFiles, loadAdminWarnings, loadAdminLogs]);
+
+  const handleAdminSetRole = async (targetUserId, role) => {
+    try {
+      const res = await authedFetch('/api/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set_role', targetUserId, role })
+      });
+      const data = await res.json();
+      addToast(data.success ? `Role alterado para ${role}.` : `Erro: ${data.error}`, data.success ? 'success' : 'error');
+      if (data.success && adminUsers !== null) loadAdminUsers(adminUserQuery);
+    } catch {
+      addToast('Erro ao alterar role', 'error');
+    }
+  };
+
+  const handleAdminKick = async (targetUserId, username) => {
+    if (!confirm(`Desconectar ${username} do app?`)) return;
+    try {
+      const res = await authedFetch('/api/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'kick', targetUserId })
+      });
+      const data = await res.json();
+      addToast(data.success ? 'Usuário desconectado.' : `Erro: ${data.error}`, data.success ? 'success' : 'error');
+    } catch {
+      addToast('Erro ao desconectar', 'error');
+    }
+  };
+
+  const handleAdminRemoveWarning = async (warningId, targetUserId) => {
+    try {
+      const res = await authedFetch('/api/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'remove_warning', targetUserId, warningId })
+      });
+      const data = await res.json();
+      addToast(data.success ? 'Advertência removida.' : `Erro: ${data.error}`, data.success ? 'success' : 'error');
+      if (data.success) {
+        loadAdminWarnings();
+        if (adminUsers !== null) loadAdminUsers(adminUserQuery);
+      }
+    } catch {
+      addToast('Erro ao remover advertência', 'error');
+    }
+  };
+
+  const handleAdminDeleteFile = async (fileId, ownerId) => {
+    if (!confirm('Apagar esta mídia? (o arquivo será removido do storage)')) return;
+    try {
+      const res = await authedFetch('/api/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete_file', fileId, targetUserId: ownerId })
+      });
+      const data = await res.json();
+      addToast(data.success ? 'Mídia removida.' : `Erro: ${data.error}`, data.success ? 'success' : 'error');
+    } catch {
+      addToast('Erro ao remover mídia', 'error');
+    }
+  };
+
+  const handleAdminDeleteMessage = async (messageId, table, ownerId) => {
+    if (!confirm('Apagar esta mensagem para todos os envolvidos?')) return;
+    try {
+      const res = await authedFetch('/api/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete_message', messageId, table, targetUserId: ownerId })
+      });
+      const data = await res.json();
+      addToast(data.success ? 'Mensagem removida.' : `Erro: ${data.error}`, data.success ? 'success' : 'error');
+    } catch {
+      addToast('Erro ao remover mensagem', 'error');
+    }
+  };
+
+  const handleBroadcast = async () => {
+    if (!broadcastMsg.trim()) return;
+    try {
+      const res = await authedFetch('/api/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'broadcast', message: broadcastMsg.trim() })
+      });
+      const data = await res.json();
+      addToast(data.success ? 'Anúncio enviado para todos.' : `Erro: ${data.error}`, data.success ? 'success' : 'error');
+      if (data.success) setBroadcastMsg('');
+    } catch {
+      addToast('Erro ao enviar anúncio', 'error');
     }
   };
 
@@ -2582,6 +2770,18 @@ export default function Home() {
   return (
     <div className="app-container" style={{ display: 'flex', height: '100dvh', width: '100vw', background: 'var(--bg)', overflow: 'hidden', position: 'relative' }}>
       
+      {/* Banner de anúncio global (admin) */}
+      {announcement && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999, background: 'linear-gradient(90deg, var(--gold), #e0a800)', color: '#000', padding: '10px 44px 10px 16px', fontSize: '13px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Megaphone size={16} />
+          <span style={{ flex: 1 }}>{announcement.message}</span>
+          <span style={{ fontSize: '11px', opacity: 0.7, whiteSpace: 'nowrap' }}>{announcement.adminName}</span>
+          <button onClick={() => setAnnouncement(null)} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', color: '#000', padding: 4 }}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {/* Container de Toasts flutuantes */}
       <div className="toast-container">
         {toasts.map(t => (
@@ -2839,90 +3039,378 @@ export default function Home() {
               </div>
             )}
 
-            <div className="glass-card" style={{ border: '1px solid var(--line)', marginBottom: '16px' }}>
-              <h3 style={{ marginBottom: '12px', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <BarChart3 size={16} /> Estatísticas
-              </h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px' }}>
-                <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.activeUsers ?? '-'}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Online agora</div>
-                </div>
-                <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalUsers ?? '-'}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Usuários</div>
-                </div>
-                <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalMessages ?? '-'}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Msgs privadas</div>
-                </div>
-                <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalGroupMessages ?? '-'}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Msgs em grupo</div>
-                </div>
-                <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalCalls ?? '-'}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Chamadas</div>
-                </div>
-                <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--red)' }}>{adminStats?.totalBans ?? '-'}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Bans ativos</div>
-                </div>
-                <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalFiles ?? '-'}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Arquivos</div>
-                </div>
-                <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalWarnings ?? '-'}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Advertências</div>
-                </div>
-              </div>
+            {/* Abas */}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
+              {[
+                ['stats', 'Estatísticas'],
+                ['reports', 'Denúncias'],
+                ['users', 'Usuários'],
+                ['files', 'Arquivos'],
+                ['warnings', 'Avisos'],
+                ['logs', 'Logs']
+              ].map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => setAdminTab(key)}
+                  className="btn-secondary"
+                  style={{ padding: '6px 14px', fontSize: '12px', minHeight: '32px', background: adminTab === key ? 'var(--gold)' : 'transparent', color: adminTab === key ? '#000' : 'var(--muted)', border: '1px solid ' + (adminTab === key ? 'var(--gold)' : 'var(--line)') }}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
-            <div className="glass-card" style={{ border: '1px solid var(--line)' }}>
-              <h3 style={{ marginBottom: '12px', fontSize: '16px' }}>Denúncias Recebidas</h3>
-              {reports.length === 0 ? (
-                <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Nenhuma denúncia pendente.</p>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {reports.map(rep => (
-                    <div key={rep.id} style={{ padding: '12px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px' }} className="animate-slide-in">
-                      <div style={{ display: 'flex', flexDirection: 'column', fontSize: '11px', color: 'var(--muted)', marginBottom: '8px', gap: '2px' }}>
-                        <span>Denunciante: {rep.reporterName}</span>
-                        <span>Data: {new Date(rep.createdAt).toLocaleString()}</span>
+            {adminTab === 'stats' && (
+              <>
+                {/* Anúncio Global */}
+                <div className="glass-card" style={{ border: '1px solid var(--line)', marginBottom: '16px' }}>
+                  <h3 style={{ marginBottom: '12px', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Megaphone size={16} /> Anúncio Global
+                  </h3>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <input
+                      value={broadcastMsg}
+                      onChange={e => setBroadcastMsg(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') handleBroadcast(); }}
+                      placeholder="Mensagem para todos os usuários online..."
+                      style={{ flex: 1, minWidth: '220px', padding: '10px', borderRadius: '8px', border: '1px solid var(--line)', background: 'var(--bg)', color: 'var(--text)', fontSize: '13px' }}
+                    />
+                    <button onClick={handleBroadcast} className="btn-primary" style={{ padding: '6px 16px', fontSize: '13px', minHeight: '38px' }}>
+                      Enviar
+                    </button>
+                  </div>
+                </div>
+
+                <div className="glass-card" style={{ border: '1px solid var(--line)', marginBottom: '16px' }}>
+                  <h3 style={{ marginBottom: '12px', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <BarChart3 size={16} /> Estatísticas
+                  </h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px' }}>
+                    <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.activeUsers ?? '-'}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Online agora</div>
+                    </div>
+                    <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalUsers ?? '-'}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Usuários</div>
+                    </div>
+                    <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalMessages ?? '-'}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Msgs privadas</div>
+                    </div>
+                    <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalGroupMessages ?? '-'}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Msgs em grupo</div>
+                    </div>
+                    <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalCalls ?? '-'}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Chamadas</div>
+                    </div>
+                    <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--red)' }}>{adminStats?.totalBans ?? '-'}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Bans ativos</div>
+                    </div>
+                    <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalFiles ?? '-'}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Arquivos</div>
+                    </div>
+                    <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalWarnings ?? '-'}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Advertências</div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {adminTab === 'reports' && (
+              <div className="glass-card" style={{ border: '1px solid var(--line)' }}>
+                <h3 style={{ marginBottom: '12px', fontSize: '16px' }}>Denúncias Recebidas</h3>
+                {reports.length === 0 ? (
+                  <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Nenhuma denúncia pendente.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {reports.map(rep => (
+                      <div key={rep.id} style={{ padding: '12px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px' }} className="animate-slide-in">
+                        <div style={{ display: 'flex', flexDirection: 'column', fontSize: '11px', color: 'var(--muted)', marginBottom: '8px', gap: '2px' }}>
+                          <span>Denunciante: {rep.reporterName}</span>
+                          <span>Data: {new Date(rep.createdAt).toLocaleString()}</span>
+                        </div>
+                        <div style={{ fontSize: '14px', marginBottom: '8px' }}>
+                          <strong>Denunciado: </strong> {rep.reportedName} ({rep.reportedCustomId})
+                        </div>
+                        <p style={{ fontSize: '13px', background: 'var(--bg-2)', padding: '10px', borderRadius: '6px', marginBottom: '12px' }}>
+                          <strong>Motivo: </strong> {rep.reason} <br/>
+                          <strong>Detalhes: </strong> {rep.details || 'Sem detalhes.'}
+                        </p>
+                        
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          {rep.isCurrentlyBanned ? (
+                            <button onClick={() => handleAdminAction(rep.reportedId, 'unban')} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', minHeight: '34px' }}>
+                              Desbanir
+                            </button>
+                          ) : (
+                            <>
+                              <button onClick={() => handleAdminAction(rep.reportedId, 'warn')} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', minHeight: '34px' }}>
+                                Advertir
+                              </button>
+                              <button onClick={() => handleAdminAction(rep.reportedId, 'ban', 1)} className="btn-primary" style={{ background: 'var(--red)', color: '#fff', padding: '6px 12px', fontSize: '12px', minHeight: '34px' }}>
+                                Banir 1 Dia
+                              </button>
+                              <button onClick={() => handleAdminAction(rep.reportedId, 'ban', 0)} className="btn-primary" style={{ background: 'var(--red)', color: '#fff', padding: '6px 12px', fontSize: '12px', minHeight: '34px' }}>
+                                Banir Permanente
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
-                      <div style={{ fontSize: '14px', marginBottom: '8px' }}>
-                        <strong>Denunciado: </strong> {rep.reportedName} ({rep.reportedCustomId})
-                      </div>
-                      <p style={{ fontSize: '13px', background: 'var(--bg-2)', padding: '10px', borderRadius: '6px', marginBottom: '12px' }}>
-                        <strong>Motivo: </strong> {rep.reason} <br/>
-                        <strong>Detalhes: </strong> {rep.details || 'Sem detalhes.'}
-                      </p>
-                      
-                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                        {rep.isCurrentlyBanned ? (
-                          <button onClick={() => handleAdminAction(rep.reportedId, 'unban')} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', minHeight: '34px' }}>
-                            Desbanir
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {adminTab === 'users' && (
+              <div className="glass-card" style={{ border: '1px solid var(--line)' }}>
+                <h3 style={{ marginBottom: '12px', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Search size={16} /> Buscar Usuário
+                </h3>
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+                  <input
+                    value={adminUserQuery}
+                    onChange={e => setAdminUserQuery(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') loadAdminUsers(adminUserQuery); }}
+                    placeholder="Username, customId ou e-mail..."
+                    style={{ flex: 1, minWidth: '220px', padding: '10px', borderRadius: '8px', border: '1px solid var(--line)', background: 'var(--bg)', color: 'var(--text)', fontSize: '13px' }}
+                  />
+                  <button onClick={() => loadAdminUsers(adminUserQuery)} className="btn-primary" style={{ padding: '6px 16px', fontSize: '13px', minHeight: '38px' }}>
+                    Buscar
+                  </button>
+                </div>
+
+                {adminUsers === null ? (
+                  <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Digite algo acima para buscar usuários.</p>
+                ) : adminUsers.length === 0 ? (
+                  <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Nenhum usuário encontrado.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {adminUsers.map(u => (
+                      <div key={u.id} style={{ padding: '12px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                          <div style={{ fontSize: '14px', fontWeight: '700' }}>
+                            {u.username}
+                            <span style={{ color: 'var(--muted)', fontWeight: '400', fontSize: '12px' }}> ({u.customId})</span>
+                          </div>
+                          <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: u.role === 'admin' ? 'var(--gold)' : u.role === 'moderator' ? '#4a90d9' : 'var(--bg-3)', color: u.role === 'user' ? 'var(--muted)' : '#000', fontWeight: '600' }}>
+                            {u.role}
+                          </span>
+                          <span style={{ fontSize: '11px', color: u.isOnline ? 'var(--green)' : 'var(--muted)' }}>
+                            {u.isOnline ? '● online' : 'offline'}
+                          </span>
+                          {u.lastSeen && !u.isOnline && (
+                            <span style={{ fontSize: '11px', color: 'var(--muted)' }}>últ. {new Date(u.lastSeen).toLocaleString()}</span>
+                          )}
+                          {u.lastIp && <span style={{ fontSize: '11px', color: 'var(--muted)' }}>IP: {u.lastIp}</span>}
+                          <span style={{ fontSize: '11px', color: u.warningCount > 0 ? 'var(--amber)' : 'var(--muted)' }}>{u.warningCount} aviso(s)</span>
+                          {u.activeBanReason && (
+                            <span style={{ fontSize: '11px', color: 'var(--red)' }}>BANIDO: {u.activeBanReason}</span>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          {!u.activeBanReason ? (
+                            <>
+                              <button onClick={() => handleAdminAction(u.id, 'warn')} className="btn-secondary" style={{ padding: '5px 10px', fontSize: '11px', minHeight: '30px' }}>
+                                Advertir
+                              </button>
+                              <button onClick={() => handleAdminAction(u.id, 'ban', 1)} className="btn-primary" style={{ background: 'var(--red)', color: '#fff', padding: '5px 10px', fontSize: '11px', minHeight: '30px' }}>
+                                Banir 1D
+                              </button>
+                              <button onClick={() => handleAdminAction(u.id, 'ban', 0)} className="btn-primary" style={{ background: 'var(--red)', color: '#fff', padding: '5px 10px', fontSize: '11px', minHeight: '30px' }}>
+                                Banir Perm
+                              </button>
+                            </>
+                          ) : (
+                            <button onClick={() => handleAdminAction(u.id, 'unban')} className="btn-secondary" style={{ padding: '5px 10px', fontSize: '11px', minHeight: '30px' }}>
+                              Desbanir
+                            </button>
+                          )}
+                          <button onClick={() => handleAdminKick(u.id, u.username)} className="btn-secondary" style={{ padding: '5px 10px', fontSize: '11px', minHeight: '30px' }}>
+                            Kick
                           </button>
-                        ) : (
-                          <>
-                            <button onClick={() => handleAdminAction(rep.reportedId, 'warn')} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', minHeight: '34px' }}>
-                              Advertir
-                            </button>
-                            <button onClick={() => handleAdminAction(rep.reportedId, 'ban', 1)} className="btn-primary" style={{ background: 'var(--red)', color: '#fff', padding: '6px 12px', fontSize: '12px', minHeight: '34px' }}>
-                              Banir 1 Dia
-                            </button>
-                            <button onClick={() => handleAdminAction(rep.reportedId, 'ban', 0)} className="btn-primary" style={{ background: 'var(--red)', color: '#fff', padding: '6px 12px', fontSize: '12px', minHeight: '34px' }}>
-                              Banir Permanente
-                            </button>
-                          </>
+                          <select
+                            value={u.role}
+                            onChange={e => handleAdminSetRole(u.id, e.target.value)}
+                            style={{ padding: '5px 8px', borderRadius: '6px', border: '1px solid var(--line)', background: 'var(--bg)', color: 'var(--text)', fontSize: '11px' }}
+                          >
+                            <option value="user">user</option>
+                            <option value="moderator">moderator</option>
+                            <option value="admin">admin</option>
+                          </select>
+                          <button
+                            onClick={() => {
+                              if (adminHistory[u.id]) {
+                                setAdminHistory(prev => {
+                                  const n = { ...prev };
+                                  delete n[u.id];
+                                  return n;
+                                });
+                              } else {
+                                loadAdminUserHistory(u.id);
+                              }
+                            }}
+                            className="btn-secondary"
+                            style={{ padding: '5px 10px', fontSize: '11px', minHeight: '30px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          >
+                            <History size={12} /> {adminHistory[u.id] ? 'Ocultar histórico' : 'Histórico'}
+                          </button>
+                        </div>
+
+                        {adminHistory[u.id] && (
+                          <div style={{ marginTop: '12px', background: 'var(--bg-2)', borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div>
+                              <strong style={{ fontSize: '12px' }}>Mensagens privadas:</strong>
+                              {adminHistory[u.id].directMsgs.length === 0 ? (
+                                <p style={{ fontSize: '12px', color: 'var(--muted)' }}>Nenhuma.</p>
+                              ) : adminHistory[u.id].directMsgs.map(m => (
+                                <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', padding: '4px 0' }}>
+                                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    <span style={{ color: 'var(--muted)' }}>{m.type}: </span>{m.content || '(mídia)'} <span style={{ color: 'var(--muted)' }}>— {new Date(m.createdAt).toLocaleString()}</span>
+                                  </span>
+                                  <button onClick={() => handleAdminDeleteMessage(m.id, 'direct', u.id)} style={{ color: 'var(--red)', background: 'none', border: 'none', fontSize: '11px', padding: '2px' }}>
+                                    Apagar
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                            <div>
+                              <strong style={{ fontSize: '12px' }}>Mensagens em grupo:</strong>
+                              {adminHistory[u.id].groupMsgs.length === 0 ? (
+                                <p style={{ fontSize: '12px', color: 'var(--muted)' }}>Nenhuma.</p>
+                              ) : adminHistory[u.id].groupMsgs.map(m => (
+                                <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', padding: '4px 0' }}>
+                                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    <span style={{ color: 'var(--muted)' }}>[{m.groupName}] </span>{m.content || '(mídia)'} <span style={{ color: 'var(--muted)' }}>— {new Date(m.createdAt).toLocaleString()}</span>
+                                  </span>
+                                  <button onClick={() => handleAdminDeleteMessage(m.id, 'group', u.id)} style={{ color: 'var(--red)', background: 'none', border: 'none', fontSize: '11px', padding: '2px' }}>
+                                    Apagar
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                            <div>
+                              <strong style={{ fontSize: '12px' }}>Arquivos enviados:</strong>
+                              {adminHistory[u.id].files.length === 0 ? (
+                                <p style={{ fontSize: '12px', color: 'var(--muted)' }}>Nenhum.</p>
+                              ) : adminHistory[u.id].files.map(f => (
+                                <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', padding: '4px 0' }}>
+                                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {f.filename} <span style={{ color: 'var(--muted)' }}>({formatFileSize(f.size)}){f.viewOnce ? ' [view-once]' : ''}</span>
+                                  </span>
+                                  <button onClick={() => handleAdminDeleteFile(f.id, u.id)} style={{ color: 'var(--red)', background: 'none', border: 'none', fontSize: '11px', padding: '2px' }}>
+                                    Apagar
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                            <div>
+                              <strong style={{ fontSize: '12px' }}>Denúncias contra:</strong>
+                              {adminHistory[u.id].reports.length === 0 ? (
+                                <p style={{ fontSize: '12px', color: 'var(--muted)' }}>Nenhuma.</p>
+                              ) : adminHistory[u.id].reports.map(r => (
+                                <div key={r.id} style={{ fontSize: '12px', padding: '4px 0' }}>
+                                  <span style={{ color: 'var(--muted)' }}>{r.reporterName}: </span>{r.reason} <span style={{ color: 'var(--muted)' }}>({r.status})</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
                         )}
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {adminTab === 'files' && (
+              <div className="glass-card" style={{ border: '1px solid var(--line)' }}>
+                <h3 style={{ marginBottom: '12px', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <FileText size={16} /> Mídias Recentes <span style={{ fontSize: '11px', color: 'var(--green)' }}>● ao vivo</span>
+                </h3>
+                {adminFiles === null || adminFiles.length === 0 ? (
+                  <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Nenhuma mídia.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {adminFiles.map(f => (
+                      <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px' }}>
+                        {f.mime?.startsWith('image/') ? (
+                          <img src={`/api/files/${f.id}`} alt="" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
+                        ) : (
+                          <div style={{ width: 44, height: 44, borderRadius: 6, background: 'var(--bg-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <FileText size={18} />
+                          </div>
+                        )}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: '13px', fontWeight: '600', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.filename}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                            {f.ownerName} • {formatFileSize(f.size)} • {new Date(f.createdAt).toLocaleString()}
+                            {f.viewOnce ? ' • [view-once]' : ''}
+                          </div>
+                        </div>
+                        <button onClick={() => handleAdminDeleteFile(f.id, f.ownerId)} style={{ color: 'var(--red)', background: 'none', border: '1px solid var(--line)', borderRadius: '6px', padding: '4px 10px', fontSize: '11px', flexShrink: 0 }}>
+                          Remover
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {adminTab === 'warnings' && (
+              <div className="glass-card" style={{ border: '1px solid var(--line)' }}>
+                <h3 style={{ marginBottom: '12px', fontSize: '16px' }}>Advertências</h3>
+                {adminWarnings === null || adminWarnings.length === 0 ? (
+                  <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Nenhuma advertência registrada.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {adminWarnings.map(w => (
+                      <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px' }}>
+                        <ShieldAlert size={16} style={{ color: 'var(--amber)', flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: '13px', fontWeight: '600' }}>{w.userName} <span style={{ color: 'var(--muted)', fontWeight: '400', fontSize: '11px' }}>({w.customId})</span></div>
+                          <div style={{ fontSize: '12px', color: 'var(--muted)' }}>{w.reason} — {new Date(w.createdAt).toLocaleString()} por {w.issuedByName || 'sistema'}</div>
+                        </div>
+                        <button onClick={() => handleAdminRemoveWarning(w.id, w.userId)} style={{ color: 'var(--red)', background: 'none', border: '1px solid var(--line)', borderRadius: '6px', padding: '4px 10px', fontSize: '11px', flexShrink: 0 }}>
+                          Remover
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {adminTab === 'logs' && (
+              <div className="glass-card" style={{ border: '1px solid var(--line)' }}>
+                <h3 style={{ marginBottom: '12px', fontSize: '16px' }}>Log de Ações dos Admins</h3>
+                {adminLogs === null || adminLogs.length === 0 ? (
+                  <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Nenhuma ação registrada ainda.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {adminLogs.map(l => (
+                      <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', padding: '6px 8px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '6px', flexWrap: 'wrap' }}>
+                        <span style={{ color: 'var(--gold)', fontWeight: '600' }}>{l.action}</span>
+                        <span>por <strong>{l.adminName || 'desconhecido'}</strong></span>
+                        {l.targetName && <span>→ <strong>{l.targetName}</strong></span>}
+                        <span style={{ color: 'var(--muted)' }}>{new Date(l.createdAt).toLocaleString()}</span>
+                        {l.details && <span style={{ color: 'var(--muted)', fontSize: '11px' }}>{typeof l.details === 'string' ? l.details : JSON.stringify(l.details)}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ) : selectedFriend || selectedGroup || inRandomChat ? (
           // SE ESTIVER CONECTADO NO CHAT COM ALGUÉM (FRIEND OU RANDOM)
