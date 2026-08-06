@@ -85,7 +85,7 @@ function MediaPreview({ msg }) {
     preview = (
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', color: 'var(--text)' }}>
         <FileText size={14} style={{ color: 'var(--gold)' }} />
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '160px' }}>{name || 'Arquivo'}</span>
+        <span>Arquivo</span>
         <span style={{ color: 'var(--muted)', fontSize: '10px' }}>{formatFileSize(msg.attach?.size || msg.attachSize)}</span>
       </div>
     );
@@ -989,13 +989,12 @@ export default function Home() {
       }
     });
 
-    // Mídia de visualização única foi aberta pelo outro lado: some da conversa
+    // Mídia de visualização única foi aberta: carrega e some da conversa após 15s
     socket.on('view_once_viewed', (data) => {
       if (data && data.messageId) {
-        // Pequeno atraso para quem visualizou conseguir ver a mídia
         setTimeout(() => {
           setMessages(prev => prev.filter(m => m.id !== data.messageId));
-        }, 2000);
+        }, 15_000);
       }
     });
 
@@ -1587,17 +1586,22 @@ export default function Home() {
   const startVoiceRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/mp4')
+          ? 'audio/mp4'
+          : '';
+      const mediaRecorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
       voiceChunksRef.current = [];
+      voiceStartTimeRef.current = Date.now();
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) voiceChunksRef.current.push(e.data);
       };
       mediaRecorder.onstop = () => {
         stream.getTracks().forEach(t => t.stop());
       };
-      mediaRecorder.start();
+      mediaRecorder.start(250);
       voiceMediaRecorderRef.current = mediaRecorder;
-      voiceStartTimeRef.current = Date.now();
       setIsRecordingVoice(true);
       setVoiceDuration(0);
       voiceTimerRef.current = setInterval(() => {
@@ -1616,8 +1620,16 @@ export default function Home() {
         resolve(null);
         return;
       }
+      const finalChunks = voiceChunksRef.current;
       recorder.onstop = () => {
-        const blob = new Blob(voiceChunksRef.current, { type: 'audio/webm' });
+        const mime = recorder.mimeType && recorder.mimeType.includes('/') ? recorder.mimeType.split(';')[0] : 'audio/webm';
+        const blob = new Blob(finalChunks, { type: mime });
+        // Gravação praticamente vazia: descarta
+        if (blob.size < 1000 || Math.floor((Date.now() - voiceStartTimeRef.current) / 1000) < 1) {
+          resolve(null);
+          addToast('Gravação muito curta. Fale por pelo menos 1 segundo.', 'warning');
+          return;
+        }
         resolve(blob);
       };
       recorder.stop();
@@ -1645,7 +1657,8 @@ export default function Home() {
     setSendingMedia(true);
     try {
       const fd = new FormData();
-      const file = new File([blob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
+      const ext = blob.type.includes('mp4') ? 'm4a' : 'webm';
+      const file = new File([blob], `voice_${Date.now()}.${ext}`, { type: blob.type });
       fd.append('file', file);
       fd.append('purpose', 'voice');
       const up = await authedFetch('/api/upload', { method: 'POST', body: fd });
@@ -3258,7 +3271,7 @@ export default function Home() {
               {attachment && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-3)', border: '1px solid var(--gold)', padding: '6px 12px', borderRadius: '8px' }}>
                   {attachment.type.startsWith('image/') ? <Eye size={14} style={{ color: 'var(--gold)' }} /> : attachment.type.startsWith('video/') ? <Video size={14} style={{ color: 'var(--gold)' }} /> : <FileText size={14} style={{ color: 'var(--gold)' }} />}
-                  <span style={{ fontSize: '12px', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{attachment.name}</span>
+                  <span style={{ fontSize: '12px', color: 'var(--text)' }}>{attachment.type.startsWith('video/') ? 'Vídeo' : attachment.type.startsWith('audio/') ? 'Áudio' : 'Foto'}</span>
                   <span style={{ fontSize: '10px', color: 'var(--muted)' }}>{formatFileSize(attachment.size)}</span>
                   {selectedFriend && !selectedGroup && (
                     <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: viewOnce ? 'var(--gold)' : 'var(--muted)', cursor: 'pointer' }}>

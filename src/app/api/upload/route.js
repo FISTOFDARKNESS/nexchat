@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/session';
+import { storageUpload } from '@/lib/storage';
 
 const MAX_SIZE = {
   avatar: 2 * 1024 * 1024,   // 2 MB
@@ -17,7 +18,7 @@ function extFromMime(mime) {
   const map = {
     'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp',
     'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov',
-    'audio/mpeg': '.mp3', 'audio/webm': '.webm', 'audio/ogg': '.ogg', 'audio/wav': '.wav',
+    'audio/mpeg': '.mp3', 'audio/webm': '.webm', 'audio/ogg': '.ogg', 'audio/wav': '.wav', 'audio/mp4': '.m4a', 'audio/m4a': '.m4a', 'audio/aac': '.aac',
     'application/pdf': '.pdf', 'text/plain': '.txt'
   };
   return map[mime] || '';
@@ -72,19 +73,29 @@ export async function POST(req) {
     }
 
     const dirName = purpose === 'avatar' ? 'uploads/avatar' : purpose === 'voice' ? 'uploads/voice' : 'uploads/media';
-    const dir = path.join(process.cwd(), dirName);
-    await mkdir(dir, { recursive: true });
-
+    const folder = purpose === 'avatar' ? 'avatar' : purpose === 'voice' ? 'voice' : 'media';
     const storageName = `${Date.now()}_${crypto.randomBytes(8).toString('hex')}${ext}`;
-    const storagePath = path.join(dirName, storageName);
-    await writeFile(path.join(process.cwd(), storagePath), bytes);
+
+    // 1) Tenta salvar no bucket "marketplace" (Supabase Storage)
+    let storageKey = null;
+    let storagePath = path.join(dirName, storageName);
+    try {
+      storageKey = await storageUpload(folder, storageName, bytes, mime);
+    } catch { /* ignora e usa fallback local */ }
+
+    // 2) Fallback: disco local
+    if (!storageKey) {
+      const dir = path.join(process.cwd(), dirName);
+      await mkdir(dir, { recursive: true });
+      await writeFile(path.join(process.cwd(), storagePath), bytes);
+    }
 
     // View-once: expira após 24h (ou ao ser visualizado)
     const expiresAt = viewOnce ? new Date(Date.now() + 24 * 60 * 60 * 1000) : null;
     const result = await sql(
-      `INSERT INTO "File" ("ownerId", filename, mime, size, "storagePath", "viewOnce", "expiresAt")
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [userId, file.name || 'arquivo', mime, bytes.length, storagePath, viewOnce, expiresAt]
+      `INSERT INTO "File" ("ownerId", filename, mime, size, "storagePath", "storageKey", "viewOnce", "expiresAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [userId, file.name || 'arquivo', mime, bytes.length, storagePath, storageKey, viewOnce, expiresAt]
     );
     const row = result[0];
     return NextResponse.json({

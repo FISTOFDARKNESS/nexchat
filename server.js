@@ -720,16 +720,27 @@ app.prepare().then(() => {
     };
     try {
       const res = await pool.query(
-        `SELECT id, "storagePath" FROM "File"
+        `SELECT id, "storagePath", "storageKey" FROM "File"
          WHERE ("expiresAt" IS NOT NULL AND "expiresAt" < now())
             OR ("viewOnce" = true AND "viewedAt" IS NOT NULL AND "viewedAt" < now() - interval '1 hour')`
       );
       for (const row of res.rows) {
-        fs.unlink(diskPath(row.storagePath), () => {});
+        if (row.storageKey) {
+          // Remove do bucket "marketplace" (Supabase Storage)
+          fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/marketplace/${row.storageKey}`, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}`,
+              'apikey': process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+            }
+          }).catch(() => {});
+        } else {
+          fs.unlink(diskPath(row.storagePath), () => {});
+        }
         pool.query('DELETE FROM "File" WHERE id = $1', [row.id]).catch(() => {});
       }
-      // Órfãos: registro existe, mas o arquivo físico não está mais no disco
-      const all = await pool.query('SELECT id, "storagePath" FROM "File"');
+      // Órfãos (só locais): registro existe, mas o arquivo físico não está mais no disco
+      const all = await pool.query('SELECT id, "storagePath" FROM "File" WHERE "storageKey" IS NULL');
       for (const row of all.rows) {
         if (!fs.existsSync(diskPath(row.storagePath))) {
           pool.query('DELETE FROM "File" WHERE id = $1', [row.id]).catch(() => {});

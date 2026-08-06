@@ -3,6 +3,7 @@ import path from 'path';
 import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/session';
+import { storageFetch, storageDelete } from '@/lib/storage';
 
 export async function GET(req, ctx) {
   try {
@@ -74,10 +75,12 @@ export async function GET(req, ctx) {
       return NextResponse.json({ error: 'Sem permissão para acessar este arquivo' }, { status: 403 });
     }
 
-    // Lê o arquivo ANTES de marcar como visto (se sumiu do disco, não consome o view-once)
+    // Lê o arquivo ANTES de marcar como visto (se sumiu, não consome o view-once)
     let data;
     try {
-      data = await readFile(path.join(process.cwd(), file.storagePath));
+      data = file.storageKey
+        ? await storageFetch(file.storageKey)
+        : await readFile(path.join(process.cwd(), file.storagePath));
     } catch {
       await sql('DELETE FROM "File" WHERE id = $1', [id]);
       return NextResponse.json({ error: 'Arquivo não encontrado' }, { status: 404 });
@@ -88,7 +91,7 @@ export async function GET(req, ctx) {
     if (file.viewOnce && !file.viewedAt && !isOwner) {
       await sql(`UPDATE "File" SET "viewedAt" = now() WHERE id = $1`, [id]);
       markViewed = true;
-      // Avisa o DM inteiro (remetente e destinatário) para remover a mensagem da conversa
+      // Avisa o DM inteiro (remetente e destinatário) para remover a mensagem após 15s
       const dm = await sql(
         `SELECT id, "senderId", "receiverId" FROM "DirectMessage" WHERE "attachmentId" = $1 LIMIT 1`,
         [id]
@@ -99,15 +102,18 @@ export async function GET(req, ctx) {
           .to(`friend_chat_${sorted[0]}_${sorted[1]}`)
           .emit('view_once_viewed', { messageId: dm[0].id, fileId: id });
       }
-      // Some de vez: remove a mensagem da conversa (todos os dispositivos e recargas)
+      // Após 15s some de vez: arquivo (storage/disco) + registro + mensagem
       if (dm.length > 0) {
-        await sql('DELETE FROM "DirectMessage" WHERE id = $1', [dm[0].id]);
+        const messageId = dm[0].id;
+        setTimeout(async () => {
+          try {
+            await cleanup(file);
+          } catch { /* melhor esforço */ }
+          await sql('DELETE FROM "DirectMessage" WHERE id = $1', [messageId]).catch(() => {});
+        }, 15_000);
+      } else {
+        setTimeout(() => cleanup(file).catch(() => {}), 15_000);
       }
-    }
-
-    // View-once visualizado: agenda a exclusão do arquivo do servidor
-    if (markViewed) {
-      setTimeout(() => cleanup(file).catch(() => {}), 1500);
     }
 
     return new NextResponse(data, {
@@ -124,10 +130,14 @@ export async function GET(req, ctx) {
   }
 }
 
-// Remove do disco e do banco
+// Remove do bucket/disco e do banco
 async function cleanup(file) {
-  try {
-    await unlink(path.join(process.cwd(), file.storagePath));
-  } catch { /* arquivo já não existe */ }
+  if (file.storageKey) {
+    await storageDelete(file.storageKey).catch(() => {});
+  } else {
+    try {
+      await unlink(path.join(process.cwd(), file.storagePath));
+    } catch { /* arquivo já não existe */ }
+  }
   await sql('DELETE FROM "File" WHERE id = $1', [file.id]);
 }

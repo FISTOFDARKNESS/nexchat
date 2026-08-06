@@ -107,6 +107,7 @@ CREATE TABLE "File" (
   "mime" TEXT NOT NULL,
   "size" INTEGER NOT NULL,
   "storagePath" TEXT NOT NULL,
+  "storageKey" TEXT,
   "viewOnce" BOOLEAN NOT NULL DEFAULT false,
   "viewedAt" TIMESTAMPTZ,
   "expiresAt" TIMESTAMPTZ,
