@@ -351,15 +351,23 @@ export default function Home() {
   const [chatTheme, setChatTheme] = useState('default');
   const [invisibleMode, setInvisibleMode] = useState(false);
   const [buying, setBuying] = useState(false);
+  const [pendingPremiumCheck, setPendingPremiumCheck] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('premium') === 'success') {
-      setShowPremiumScreen(true);
       window.history.replaceState({}, document.title, window.location.pathname);
+      setPendingPremiumCheck(true);
       loadPremiumStatus();
     }
   }, []);
+
+  useEffect(() => {
+    if (pendingPremiumCheck && premiumStatus?.premium) {
+      setShowPremiumScreen(true);
+      setPendingPremiumCheck(false);
+    }
+  }, [pendingPremiumCheck, premiumStatus]);
 
   // --- Denúncia ---
   const [showReportModal, setShowReportModal] = useState(false);
@@ -489,13 +497,14 @@ export default function Home() {
     try {
       const res = await authedFetch('/api/premium/status');
       const data = await res.json();
+      console.log('[Premium] status API:', data);
       if (data.success) {
         setPremiumStatus(data);
         setChatTheme(data.chatTheme || 'default');
         setInvisibleMode(data.invisibleMode || false);
       }
     } catch (e) {
-      console.error(e);
+      console.error('[Premium] status error:', e);
     }
   }, [user]);
 

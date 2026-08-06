@@ -9,7 +9,7 @@ export async function GET(req) {
     if (!auth) {
       return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
     }
-    const premium = await isPremium(auth.id);
+    const premium = isPremium(user);
 
     let user = null;
     try {
