@@ -140,6 +140,35 @@ app.prepare().then(() => {
   // Mapeia userId -> Set de socketIds (presença por usuário)
   let userSockets = {};
 
+  // Rate limiting simples por socket para eventos de mensagem
+  const socketRateLimit = new Map();
+  const SOCKET_RATE_LIMIT_WINDOW = 10_000;
+  const SOCKET_RATE_LIMIT_MAX = 20;
+
+  function checkSocketRateLimit(socketId) {
+    const now = Date.now();
+    const entry = socketRateLimit.get(socketId);
+    if (!entry || now - entry.window > SOCKET_RATE_LIMIT_WINDOW) {
+      socketRateLimit.set(socketId, { count: 1, window: now });
+      return true;
+    }
+    entry.count += 1;
+    if (entry.count > SOCKET_RATE_LIMIT_MAX) {
+      return false;
+    }
+    return true;
+  }
+
+  // Limpa entradas antigas periodicamente
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of socketRateLimit.entries()) {
+      if (now - entry.window > SOCKET_RATE_LIMIT_WINDOW) {
+        socketRateLimit.delete(key);
+      }
+    }
+  }, 30_000);
+
   io.on('connection', (socket) => {
     console.log(`Socket conectado: ${socket.id}`);
 
@@ -285,6 +314,10 @@ app.prepare().then(() => {
 
     // 2. MENSAGERIA EM TEMPO REAL NO CHAT ALEATÓRIO
     socket.on('send_random_msg', (data) => {
+      if (!checkSocketRateLimit(socket.id)) {
+        socket.emit('rate_limited');
+        return;
+      }
       // data: { roomId, message: { id, content, senderId, senderName, parentMessageId, parentMessageContent } }
       const { roomId, message } = data;
       if (!message || typeof message.content !== 'string') return;
@@ -296,9 +329,27 @@ app.prepare().then(() => {
 
     // Curtir mensagem no Chat Aleatório
     socket.on('like_random_msg', (data) => {
+      if (!checkSocketRateLimit(socket.id)) {
+        socket.emit('rate_limited');
+        return;
+      }
       // data: { roomId, messageId, likedByUserId }
       const { roomId, messageId, likedByUserId } = data;
       socket.to(roomId).emit('receive_random_msg_like', { messageId, likedByUserId });
+    });
+
+    socket.on('react_random_msg', (data) => {
+      if (!checkSocketRateLimit(socket.id)) {
+        socket.emit('rate_limited');
+        return;
+      }
+      const { roomId, messageId, emoji, userId, username } = data;
+      socket.to(roomId).emit('random_msg_reacted', { messageId, emoji, userId, username });
+    });
+
+    socket.on('unreact_random_msg', (data) => {
+      const { roomId, messageId, emoji, userId } = data;
+      socket.to(roomId).emit('random_msg_unreacted', { messageId, emoji, userId });
     });
 
     // Enviar pedido de amizade no chat aleatório
@@ -364,6 +415,10 @@ app.prepare().then(() => {
     });
 
     socket.on('send_group_msg', (data) => {
+      if (!checkSocketRateLimit(socket.id)) {
+        socket.emit('rate_limited');
+        return;
+      }
       // data: { groupId, message: { id, groupId, senderId, senderName, content, createdAt } }
       const { groupId, message } = data;
       if (!groupId || !message) return;
@@ -384,7 +439,23 @@ app.prepare().then(() => {
         .catch(() => {});
     });
 
+    socket.on('react_group_msg', (data) => {
+      const { groupId, messageId, emoji, userId, username } = data;
+      const roomId = `group_chat_${groupId}`;
+      socket.to(roomId).emit('group_msg_reacted', { messageId, emoji, userId, username });
+    });
+
+    socket.on('unreact_group_msg', (data) => {
+      const { groupId, messageId, emoji, userId } = data;
+      const roomId = `group_chat_${groupId}`;
+      socket.to(roomId).emit('group_msg_unreacted', { messageId, emoji, userId });
+    });
+
     socket.on('send_friend_msg', (data) => {
+      if (!checkSocketRateLimit(socket.id)) {
+        socket.emit('rate_limited');
+        return;
+      }
       // data: { roomId, message: { id, senderId, receiverId, content, parentMessageId, parentMessageContent } }
       const { roomId, message } = data;
       if (!roomId || !message) return;
@@ -461,6 +532,16 @@ app.prepare().then(() => {
       // data: { roomId, messageId, likedByUserId }
       const { roomId, messageId, likedByUserId } = data;
       socket.to(roomId).emit('receive_friend_msg_like', { messageId, likedByUserId });
+    });
+
+    socket.on('react_friend_msg', (data) => {
+      const { roomId, messageId, emoji, userId, username } = data;
+      socket.to(roomId).emit('friend_msg_reacted', { messageId, emoji, userId, username });
+    });
+
+    socket.on('unreact_friend_msg', (data) => {
+      const { roomId, messageId, emoji, userId } = data;
+      socket.to(roomId).emit('friend_msg_unreacted', { messageId, emoji, userId });
     });
 
     // Sinalização para chamadas diretas com amigos

@@ -73,6 +73,7 @@ CREATE TABLE "GroupMember" (
   "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   "groupId" UUID NOT NULL REFERENCES "Group"(id) ON DELETE CASCADE,
   "userId" UUID NOT NULL REFERENCES "User"(id) ON DELETE CASCADE,
+  "role" TEXT NOT NULL DEFAULT 'member', -- 'owner', 'admin', 'member'
   "lastReadAt" TIMESTAMPTZ, -- Última leitura do usuário (badge de não lidas)
   "joinedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE("groupId", "userId")
@@ -152,6 +153,15 @@ CREATE TABLE "Ban" (
   "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Tabela de Advertências (Warnings)
+CREATE TABLE "Warning" (
+  "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  "userId" UUID NOT NULL REFERENCES "User"(id) ON DELETE CASCADE,
+  "issuedBy" UUID REFERENCES "User"(id) ON DELETE SET NULL,
+  "reason" TEXT NOT NULL,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Criar índices para otimizar buscas
 CREATE INDEX idx_user_custom_id ON "User"("customId");
 CREATE INDEX idx_friendship_user1 ON "Friendship"("userId1");
@@ -166,4 +176,9 @@ CREATE INDEX idx_reaction_message ON "MessageReaction"("messageId");
 CREATE INDEX idx_dm_receiver ON "DirectMessage"("receiverId");
 CREATE INDEX idx_dmlike_msg ON "MessageLike"("messageId");
 CREATE INDEX idx_group_msg ON "GroupMessage"("groupId");
+CREATE INDEX idx_dm_pinned ON "DirectMessage"("pinnedAt");
+CREATE INDEX idx_gm_pinned ON "GroupMessage"("pinnedAt");
+
+ALTER TABLE "DirectMessage" ADD COLUMN IF NOT EXISTS "pinnedAt" TIMESTAMPTZ;
+ALTER TABLE "GroupMessage" ADD COLUMN IF NOT EXISTS "pinnedAt" TIMESTAMPTZ;
 CREATE INDEX idx_group_member ON "GroupMember"("groupId");

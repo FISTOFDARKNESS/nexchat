@@ -13,36 +13,36 @@ export async function GET(req) {
 
     const { searchParams } = new URL(req.url);
     const friendId = searchParams.get('friendId');
+    const search = searchParams.get('search');
 
     if (!friendId) {
       return NextResponse.json({ error: 'friendId é obrigatório' }, { status: 400 });
     }
 
     // Busca as mensagens e as informações de quem enviou e respondeu
-    const messages = await sql(
-      `SELECT m.id, m."senderId", m."receiverId", m.content, m.type, m."parentMessageId", m."createdAt", m."readAt",
-              m."editedAt", m."durationSeconds", m."attachmentId",
-              f.mime as "attachMime", f.filename as "attachFilename", f.size as "attachSize", f."viewOnce" as "attachViewOnce",
-              pm.content as "parentContent",
-              COALESCE(
-                (SELECT json_agg(ml."userId") 
-                 FROM "MessageLike" ml 
-                 WHERE ml."messageId" = m.id), 
-                '[]'::json
-              ) as "likedBy"
-       FROM "DirectMessage" m
-       LEFT JOIN "File" f ON f.id = m."attachmentId"
-       LEFT JOIN "DirectMessage" pm ON pm.id = m."parentMessageId"
-       WHERE (m."senderId" = $1 AND m."receiverId" = $2)
-          OR (m."senderId" = $2 AND m."receiverId" = $1)
-         AND NOT EXISTS (
-           SELECT 1 FROM "Block" b
-           WHERE (b."blockerId" = m."senderId" AND b."blockedId" = m."receiverId")
-              OR (b."blockerId" = m."receiverId" AND b."blockedId" = m."senderId")
-         )
-       ORDER BY m."createdAt" ASC`,
-      [userId, friendId]
-    );
+    let query = `
+      SELECT m.id, m."senderId", m."receiverId", m.content, m.type, m."parentMessageId", m."createdAt", m."readAt",
+             m."editedAt", m."durationSeconds", m."attachmentId", m."pinnedAt",
+             f.mime as "attachMime", f.filename as "attachFilename", f.size as "attachSize", f."viewOnce" as "attachViewOnce",
+             pm.content as "parentContent",
+             COALESCE(
+               (SELECT json_agg(ml."userId") 
+                FROM "MessageLike" ml 
+                WHERE ml."messageId" = m.id), 
+               '[]'::json
+             ) as "likedBy"
+      FROM "DirectMessage" m
+      LEFT JOIN "File" f ON f.id = m."attachmentId"
+      LEFT JOIN "DirectMessage" pm ON pm.id = m."parentMessageId"
+      WHERE ((m."senderId" = $1 AND m."receiverId" = $2) OR (m."senderId" = $2 AND m."receiverId" = $1))
+    `;
+    const params = [userId, friendId];
+    if (search && search.trim()) {
+      query += ` AND m.content ILIKE $${params.length + 1}`;
+      params.push(`%${search.trim()}%`);
+    }
+    query += ` ORDER BY m."createdAt" ASC`;
+    const messages = await sql(query, params);
 
     return NextResponse.json({ success: true, messages });
 
@@ -251,6 +251,52 @@ export async function POST(req) {
       );
 
       return NextResponse.json({ success: true, updated: result.length });
+    }
+
+    // 6. FIXAR MENSAGEM (PIN)
+    if (action === 'pin') {
+      const { messageId } = body;
+      if (!messageId) {
+        return NextResponse.json({ error: 'messageId é obrigatório' }, { status: 400 });
+      }
+      const msg = await sql(
+        'SELECT "senderId", "receiverId" FROM "DirectMessage" WHERE id = $1 LIMIT 1',
+        [messageId]
+      );
+      if (msg.length === 0) {
+        return NextResponse.json({ error: 'Mensagem não encontrada' }, { status: 404 });
+      }
+      if (msg[0].senderId !== userId && msg[0].receiverId !== userId) {
+        return NextResponse.json({ error: 'Sem permissão' }, { status: 403 });
+      }
+      await sql(
+        `UPDATE "DirectMessage" SET "pinnedAt" = now() WHERE id = $1`,
+        [messageId]
+      );
+      return NextResponse.json({ success: true });
+    }
+
+    // 7. DESFIXAR MENSAGEM (UNPIN)
+    if (action === 'unpin') {
+      const { messageId } = body;
+      if (!messageId) {
+        return NextResponse.json({ error: 'messageId é obrigatório' }, { status: 400 });
+      }
+      const msg = await sql(
+        'SELECT "senderId", "receiverId" FROM "DirectMessage" WHERE id = $1 LIMIT 1',
+        [messageId]
+      );
+      if (msg.length === 0) {
+        return NextResponse.json({ error: 'Mensagem não encontrada' }, { status: 404 });
+      }
+      if (msg[0].senderId !== userId && msg[0].receiverId !== userId) {
+        return NextResponse.json({ error: 'Sem permissão' }, { status: 403 });
+      }
+      await sql(
+        `UPDATE "DirectMessage" SET "pinnedAt" = NULL WHERE id = $1`,
+        [messageId]
+      );
+      return NextResponse.json({ success: true });
     }
 
     return NextResponse.json({ error: 'Ação inválida' }, { status: 400 });

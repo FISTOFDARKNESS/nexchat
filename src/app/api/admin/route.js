@@ -23,6 +23,50 @@ export async function GET(req) {
       return NextResponse.json({ error: 'Acesso negado: Apenas administradores' }, { status: 403 });
     }
 
+    const { searchParams } = new URL(req.url);
+    const action = searchParams.get('action');
+
+    if (action === 'stats') {
+      const activeUsers = await sql(`SELECT COUNT(*) FROM "User" WHERE "isOnline" = true`);
+      const totalUsers = await sql(`SELECT COUNT(*) FROM "User"`);
+      const totalMessages = await sql(`SELECT COUNT(*) FROM "DirectMessage"`);
+      const totalGroupMessages = await sql(`SELECT COUNT(*) FROM "GroupMessage"`);
+      const totalCalls = await sql(`SELECT COUNT(*) FROM "DirectMessage" WHERE type = 'call'`);
+      const totalBans = await sql(`SELECT COUNT(*) FROM "Ban" WHERE "expiresAt" IS NULL OR "expiresAt" > now()`);
+      const totalFiles = await sql(`SELECT COUNT(*) FROM "File"`);
+      const totalWarnings = await sql(`SELECT COUNT(*) FROM "Warning"`);
+
+      const messagesPerDay = await sql(`
+        SELECT date_trunc('day', "createdAt") as day, COUNT(*) as count
+        FROM "DirectMessage"
+        WHERE "createdAt" > now() - interval '7 days'
+        GROUP BY day ORDER BY day ASC
+      `);
+
+      const topUploaders = await sql(`
+        SELECT u.username, COUNT(f.id) as count
+        FROM "File" f
+        JOIN "User" u ON u.id = f."ownerId"
+        GROUP BY u.username ORDER BY count DESC LIMIT 10
+      `);
+
+      return NextResponse.json({
+        success: true,
+        stats: {
+          activeUsers: Number(activeUsers[0]?.count || 0),
+          totalUsers: Number(totalUsers[0]?.count || 0),
+          totalMessages: Number(totalMessages[0]?.count || 0),
+          totalGroupMessages: Number(totalGroupMessages[0]?.count || 0),
+          totalCalls: Number(totalCalls[0]?.count || 0),
+          totalBans: Number(totalBans[0]?.count || 0),
+          totalFiles: Number(totalFiles[0]?.count || 0),
+          totalWarnings: Number(totalWarnings[0]?.count || 0),
+          messagesPerDay: messagesPerDay.map(r => ({ day: r.day, count: Number(r.count) })),
+          topUploaders: topUploaders.map(r => ({ username: r.username, count: Number(r.count) }))
+        }
+      });
+    }
+
     // Busca relatórios juntando os dados de denunciante e denunciado
     const reports = await sql(
       `SELECT r.id, r.reason, r.details, r.status, r."createdAt",
@@ -69,7 +113,19 @@ export async function POST(req) {
       return NextResponse.json({ error: 'targetUserId é obrigatório' }, { status: 400 });
     }
 
-    // 1. BANIR USUÁRIO
+    // 1. ADVERTIR USUÁRIO (WARN)
+    if (action === 'warn') {
+      if (!reason) {
+        return NextResponse.json({ error: 'Motivo da advertência é obrigatório' }, { status: 400 });
+      }
+      await sql(
+        `INSERT INTO "Warning" ("userId", "issuedBy", reason) VALUES ($1, $2, $3)`,
+        [targetUserId, adminUserId, reason]
+      );
+      return NextResponse.json({ success: true, message: 'Usuário advertido com sucesso' });
+    }
+
+    // 2. BANIR USUÁRIO
     if (action === 'ban') {
       if (!reason) {
         return NextResponse.json({ error: 'Motivo do banimento é obrigatório' }, { status: 400 });

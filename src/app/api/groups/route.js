@@ -26,7 +26,7 @@ export async function GET(req) {
         return NextResponse.json({ error: 'Grupo não encontrado' }, { status: 404 });
       }
       const members = await sql(
-        `SELECT u.id as "userId", u.username, u."customId", u."avatarUrl", u."isOnline"
+        `SELECT u.id as "userId", u.username, u."customId", u."avatarUrl", u."isOnline", gm.role
          FROM "GroupMember" gm JOIN "User" u ON u.id = gm."userId"
          WHERE gm."groupId" = $1 ORDER BY gm."joinedAt" ASC`,
         [groupId]
@@ -47,6 +47,7 @@ export async function GET(req) {
     // Lista de grupos do usuário (com contagem de não lidas)
     const groups = await sql(
       `SELECT g.id, g.name, g."ownerId", g."createdAt",
+              me.role as "myRole",
               (SELECT COUNT(*) FROM "GroupMember" gm WHERE gm."groupId" = g.id)::int AS "memberCount",
               (SELECT COUNT(*) FROM "GroupMessage" gmsg
                WHERE gmsg."groupId" = g.id
@@ -99,8 +100,8 @@ export async function POST(req) {
       const group = result[0];
       for (const uid of members) {
         await sql(
-          `INSERT INTO "GroupMember" ("groupId", "userId") VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-          [group.id, uid]
+          `INSERT INTO "GroupMember" ("groupId", "userId", role) VALUES ($1, $2, CASE WHEN $2 = $3 THEN 'owner' ELSE 'member' END) ON CONFLICT DO NOTHING`,
+          [group.id, uid, userId]
         );
       }
       return NextResponse.json({ success: true, group });
@@ -112,15 +113,73 @@ export async function POST(req) {
       if (!groupId || !targetUserId) {
         return NextResponse.json({ error: 'groupId e userId são obrigatórios' }, { status: 400 });
       }
-      const membership = await sql(
-        `SELECT 1 FROM "GroupMember" WHERE "groupId" = $1 AND "userId" = $2 LIMIT 1`,
+      const me = await sql(
+        `SELECT role FROM "GroupMember" WHERE "groupId" = $1 AND "userId" = $2 LIMIT 1`,
         [groupId, userId]
       );
-      if (membership.length === 0) {
-        return NextResponse.json({ error: 'Você não é membro deste grupo' }, { status: 403 });
+      if (me.length === 0 || !['owner', 'admin'].includes(me[0].role)) {
+        return NextResponse.json({ error: 'Sem permissão para adicionar membros' }, { status: 403 });
       }
       await sql(
         `INSERT INTO "GroupMember" ("groupId", "userId") VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [groupId, targetUserId]
+      );
+      return NextResponse.json({ success: true });
+    }
+
+    // 3. REMOVER MEMBRO
+    if (action === 'remove_member') {
+      const { groupId, userId: targetUserId } = body;
+      if (!groupId || !targetUserId) {
+        return NextResponse.json({ error: 'groupId e userId são obrigatórios' }, { status: 400 });
+      }
+      const me = await sql(
+        `SELECT role FROM "GroupMember" WHERE "groupId" = $1 AND "userId" = $2 LIMIT 1`,
+        [groupId, userId]
+      );
+      if (me.length === 0) {
+        return NextResponse.json({ error: 'Você não é membro deste grupo' }, { status: 403 });
+      }
+      const target = await sql(
+        `SELECT role FROM "GroupMember" WHERE "groupId" = $1 AND "userId" = $2 LIMIT 1`,
+        [groupId, targetUserId]
+      );
+      if (target.length === 0) {
+        return NextResponse.json({ error: 'Usuário não é membro deste grupo' }, { status: 404 });
+      }
+      if (me[0].role !== 'owner' && (me[0].role !== 'admin' || target[0].role === 'owner')) {
+        return NextResponse.json({ error: 'Sem permissão para remover este membro' }, { status: 403 });
+      }
+      await sql(
+        `DELETE FROM "GroupMember" WHERE "groupId" = $1 AND "userId" = $2`,
+        [groupId, targetUserId]
+      );
+      return NextResponse.json({ success: true });
+    }
+
+    // 4. TRANSFERIR ADMIN
+    if (action === 'transfer_admin') {
+      const { groupId, userId: targetUserId } = body;
+      if (!groupId || !targetUserId) {
+        return NextResponse.json({ error: 'groupId e userId são obrigatórios' }, { status: 400 });
+      }
+      const me = await sql(
+        `SELECT role FROM "GroupMember" WHERE "groupId" = $1 AND "userId" = $2 LIMIT 1`,
+        [groupId, userId]
+      );
+      if (me.length === 0 || me[0].role !== 'owner') {
+        return NextResponse.json({ error: 'Apenas o dono pode transferir a propriedade' }, { status: 403 });
+      }
+      await sql(
+        `UPDATE "GroupMember" SET role = 'owner' WHERE "groupId" = $1 AND "userId" = $2`,
+        [groupId, targetUserId]
+      );
+      await sql(
+        `UPDATE "GroupMember" SET role = 'admin' WHERE "groupId" = $1 AND "userId" = $2 AND role = 'owner'`,
+        [groupId, userId]
+      );
+      await sql(
+        `UPDATE "Group" SET "ownerId" = $2 WHERE id = $1`,
         [groupId, targetUserId]
       );
       return NextResponse.json({ success: true });
@@ -139,7 +198,7 @@ export async function POST(req) {
       return NextResponse.json({ success: true });
     }
 
-    // 4. ENVIAR MENSAGEM NO GRUPO
+    // 5. ENVIAR MENSAGEM NO GRUPO
     if (action === 'send') {
       const { groupId, content, attachmentId } = body;
       if (!groupId || (!content && !attachmentId)) {

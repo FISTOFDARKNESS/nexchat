@@ -187,6 +187,11 @@ input:focus, select:focus, textarea:focus {
   100% { box-shadow: 0 0 8px rgba(234, 200, 71, 0.2); }
 }
 
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 @keyframes float {
   0% { transform: translateY(0px); }
   50% { transform: translateY(-8px); }

@@ -6,7 +6,8 @@ import {
   Video, Phone, UserPlus, Send, Heart, Smile, Shield, Flag, X, 
   MessageSquare, LogOut, MapPin, User, Users, Check, Trash, ShieldAlert,
   Moon, CheckSquare, Settings, AlertCircle, VolumeX, Mic, MicOff, VideoOff, Play,
-  Plus, CheckCircle, Clock, Info, ChevronLeft, SkipForward, CheckCheck, FileText, Paperclip, Eye
+  Plus, CheckCircle, Clock, Info, ChevronLeft, SkipForward, CheckCheck, FileText, Paperclip, Eye,
+  BarChart3
 } from 'lucide-react';
 
 let socket;
@@ -173,6 +174,12 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [addToast]);
 
+  // --- Registrar Service Worker (PWA) ---
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }, []);
+
   // --- Estados do Chat e Amizade ---
   const [friendsList, setFriendsList] = useState([]);
   const [pendingReceived, setPendingReceived] = useState([]);
@@ -239,6 +246,7 @@ export default function Home() {
   const [groupName, setGroupName] = useState('');
   const [groupMembers, setGroupMembers] = useState([]);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const [showGroupManageModal, setShowGroupManageModal] = useState(false);
   const [showAddToCallModal, setShowAddToCallModal] = useState(false);
 
   // --- Edição de mensagem ---
@@ -248,11 +256,28 @@ export default function Home() {
   // --- Emoji picker ---
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
+  // --- Busca no chat ---
+  const [chatSearch, setChatSearch] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  // --- Reações ---
+  const [reactions, setReactions] = useState({}); // messageId -> grouped reactions
+  const [reactionPicker, setReactionPicker] = useState(null); // { messageId, x, y }
+
   // --- Anexos / mídia ---
   const [attachment, setAttachment] = useState(null); // File selecionado
   const [viewOnce, setViewOnce] = useState(false);
   const [sendingMedia, setSendingMedia] = useState(false);
   const fileInputRef = useRef(null);
+
+  // --- Gravação de voz ---
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [voiceDuration, setVoiceDuration] = useState(0);
+  const voiceMediaRecorderRef = useRef(null);
+  const voiceChunksRef = useRef([]);
+  const voiceTimerRef = useRef(null);
+  const voiceStartTimeRef = useRef(null);
 
   // --- Cronômetro de chamada ---
   const callStartedAtRef = useRef(null);
@@ -275,6 +300,45 @@ export default function Home() {
 
   // WebRTC mesh: um RTCPeerConnection por participante (peerId -> pc)
   const pcsRef = useRef({});
+
+  // --- Badge na aba + som de mensagem ---
+  const [unreadBadge, setUnreadBadge] = useState(0);
+  const originalTitleRef = useRef(document.title);
+  const audioCtxRef = useRef(null);
+
+  const playNotificationSound = useCallback(() => {
+    try {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      const ctx = audioCtxRef.current;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.25);
+    } catch (e) {
+      console.error('Erro ao tocar som:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (unreadBadge > 0) {
+      document.title = `(${unreadBadge}) NexChat`;
+    } else {
+      document.title = originalTitleRef.current;
+    }
+  }, [unreadBadge]);
+
+  const resetUnreadBadge = useCallback(() => {
+    setUnreadBadge(0);
+  }, []);
   const [remoteStreams, setRemoteStreams] = useState({}); // peerId -> MediaStream
 
   // --- Refs com os valores mais recentes (para handlers do socket) ---
@@ -550,6 +614,8 @@ export default function Home() {
         const data = await res.json();
         if (data.success) {
           setMessages(data.messages || []);
+          const msgIds = (data.messages || []).map(m => m.id).filter(Boolean);
+          if (msgIds.length) loadReactions(msgIds);
           setLocalUnread(prev => {
             const n = { ...prev };
             delete n[selectedFriend.friendId];
@@ -894,6 +960,96 @@ export default function Home() {
         }
         return m;
       }));
+    });
+
+    socket.on('friend_msg_reacted', (data) => {
+      const { messageId, emoji, userId } = data;
+      setReactions(prev => {
+        const current = prev[messageId] || {};
+        const list = current[emoji] || [];
+        if (list.some(u => u.id === userId)) return prev;
+        return {
+          ...prev,
+          [messageId]: {
+            ...current,
+            [emoji]: [...list, { id: userId, username: data.username }]
+          }
+        };
+      });
+    });
+
+    socket.on('friend_msg_unreacted', (data) => {
+      const { messageId, emoji, userId } = data;
+      setReactions(prev => {
+        const current = prev[messageId] || {};
+        const list = (current[emoji] || []).filter(u => u.id !== userId);
+        if (list.length === 0) {
+          const next = { ...current };
+          delete next[emoji];
+          return { ...prev, [messageId]: next };
+        }
+        return { ...prev, [messageId]: { ...current, [emoji]: list } };
+      });
+    });
+
+    socket.on('group_msg_reacted', (data) => {
+      const { messageId, emoji, userId } = data;
+      setReactions(prev => {
+        const current = prev[messageId] || {};
+        const list = current[emoji] || [];
+        if (list.some(u => u.id === userId)) return prev;
+        return {
+          ...prev,
+          [messageId]: {
+            ...current,
+            [emoji]: [...list, { id: userId, username: data.username }]
+          }
+        };
+      });
+    });
+
+    socket.on('group_msg_unreacted', (data) => {
+      const { messageId, emoji, userId } = data;
+      setReactions(prev => {
+        const current = prev[messageId] || {};
+        const list = (current[emoji] || []).filter(u => u.id !== userId);
+        if (list.length === 0) {
+          const next = { ...current };
+          delete next[emoji];
+          return { ...prev, [messageId]: next };
+        }
+        return { ...prev, [messageId]: { ...current, [emoji]: list } };
+      });
+    });
+
+    socket.on('random_msg_reacted', (data) => {
+      const { messageId, emoji, userId } = data;
+      setReactions(prev => {
+        const current = prev[messageId] || {};
+        const list = current[emoji] || [];
+        if (list.some(u => u.id === userId)) return prev;
+        return {
+          ...prev,
+          [messageId]: {
+            ...current,
+            [emoji]: [...list, { id: userId, username: data.username }]
+          }
+        };
+      });
+    });
+
+    socket.on('random_msg_unreacted', (data) => {
+      const { messageId, emoji, userId } = data;
+      setReactions(prev => {
+        const current = prev[messageId] || {};
+        const list = (current[emoji] || []).filter(u => u.id !== userId);
+        if (list.length === 0) {
+          const next = { ...current };
+          delete next[emoji];
+          return { ...prev, [messageId]: next };
+        }
+        return { ...prev, [messageId]: { ...current, [emoji]: list } };
+      });
     });
 
     socket.on(`incoming_call_to_${user.id}`, (data) => {
@@ -1346,6 +1502,115 @@ export default function Home() {
     }
   };
 
+  const startVoiceRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      voiceChunksRef.current = [];
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) voiceChunksRef.current.push(e.data);
+      };
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+      };
+      mediaRecorder.start();
+      voiceMediaRecorderRef.current = mediaRecorder;
+      voiceStartTimeRef.current = Date.now();
+      setIsRecordingVoice(true);
+      setVoiceDuration(0);
+      voiceTimerRef.current = setInterval(() => {
+        setVoiceDuration(Math.floor((Date.now() - voiceStartTimeRef.current) / 1000));
+      }, 1000);
+    } catch (err) {
+      console.error(err);
+      addToast('Não foi possível acessar o microfone.', 'error');
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    return new Promise((resolve) => {
+      const recorder = voiceMediaRecorderRef.current;
+      if (!recorder || recorder.state === 'inactive') {
+        resolve(null);
+        return;
+      }
+      recorder.onstop = () => {
+        const blob = new Blob(voiceChunksRef.current, { type: 'audio/webm' });
+        resolve(blob);
+      };
+      recorder.stop();
+      clearInterval(voiceTimerRef.current);
+      setIsRecordingVoice(false);
+    });
+  };
+
+  const cancelVoiceRecording = () => {
+    const recorder = voiceMediaRecorderRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.onstop = () => {};
+      recorder.stop();
+    }
+    clearInterval(voiceTimerRef.current);
+    voiceChunksRef.current = [];
+    voiceMediaRecorderRef.current = null;
+    setIsRecordingVoice(false);
+    setVoiceDuration(0);
+  };
+
+  const sendVoiceMessage = async () => {
+    const blob = await stopVoiceRecording();
+    if (!blob) return;
+    setSendingMedia(true);
+    try {
+      const fd = new FormData();
+      const file = new File([blob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
+      fd.append('file', file);
+      fd.append('purpose', 'voice');
+      const up = await authedFetch('/api/upload', { method: 'POST', body: fd });
+      const upData = await up.json();
+      if (!upData.success) {
+        addToast(upData.error || 'Erro no upload do áudio.', 'error');
+        return;
+      }
+      if (selectedGroup) {
+        const res = await authedFetch('/api/groups', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'send', groupId: selectedGroup.id, content: '', attachmentId: upData.file.id })
+        });
+        const data = await res.json();
+        if (data.success) {
+          socket.emit('send_group_msg', { groupId: selectedGroup.id, message: data.message });
+          setMessages(prev => [...prev, data.message]);
+        } else {
+          addToast(data.error || 'Erro ao enviar áudio.', 'warning');
+        }
+      } else if (selectedFriend) {
+        const res = await authedFetch('/api/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'send', receiverId: selectedFriend.friendId, content: '', attachmentId: upData.file.id })
+        });
+        const data = await res.json();
+        if (data.success) {
+          setMessages(prev => [...prev, data.message]);
+          const sortedIds = [user.id, selectedFriend.friendId].sort();
+          const chatRoomId = `friend_chat_${sortedIds[0]}_${sortedIds[1]}`;
+          socket.emit('send_friend_msg', { roomId: chatRoomId, message: data.message });
+        } else {
+          addToast(data.error || 'Erro ao enviar áudio.', 'warning');
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      addToast('Erro ao enviar áudio.', 'error');
+    } finally {
+      setSendingMedia(false);
+      voiceMediaRecorderRef.current = null;
+      setVoiceDuration(0);
+    }
+  };
+
   const handleLikeMessage = async (msgId) => {
     if (!user) return;
 
@@ -1392,6 +1657,70 @@ export default function Home() {
       } catch (err) {
         console.error(err);
       }
+    }
+  };
+
+  const loadReactions = useCallback(async (messageIds) => {
+    if (!messageIds || messageIds.length === 0) return;
+    try {
+      const res = await authedFetch(`/api/reactions?messageId=${messageIds[0]}`);
+      // For now, load one by one (can be optimized with batch endpoint)
+      const results = {};
+      for (const mid of messageIds) {
+        const r = await authedFetch(`/api/reactions?messageId=${mid}`);
+        const d = await r.json();
+        if (d.success) {
+          const grouped = {};
+          d.reactions.forEach(r => {
+            if (!grouped[r.emoji]) grouped[r.emoji] = [];
+            grouped[r.emoji].push(r);
+          });
+          results[mid] = grouped;
+        }
+      }
+      setReactions(prev => ({ ...prev, ...results }));
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
+
+  const toggleReaction = async (messageId, emoji) => {
+    if (!user) return;
+    try {
+      const res = await authedFetch('/api/reactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId, emoji })
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (data.removed) {
+          setReactions(prev => {
+            const current = prev[messageId] || {};
+            const list = (current[emoji] || []).filter(u => u.id !== user.id);
+            if (list.length === 0) {
+              const next = { ...current };
+              delete next[emoji];
+              return { ...prev, [messageId]: next };
+            }
+            return { ...prev, [messageId]: { ...current, [emoji]: list } };
+          });
+        } else if (data.reaction) {
+          setReactions(prev => {
+            const current = prev[messageId] || {};
+            const list = current[emoji] || [];
+            return {
+              ...prev,
+              [messageId]: {
+                ...current,
+                [emoji]: [...list, { id: user.id, username: user.username }]
+              }
+            };
+          });
+        }
+      }
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -1610,6 +1939,58 @@ export default function Home() {
     }
   };
 
+  const searchChat = useCallback(async () => {
+    if (!chatSearch.trim() || !selectedFriend) return;
+    setIsSearching(true);
+    try {
+      const res = await authedFetch(`/api/messages?friendId=${selectedFriend.friendId}&search=${encodeURIComponent(chatSearch.trim())}`);
+      const data = await res.json();
+      if (data.success) {
+        setSearchResults(data.messages || []);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSearching(false);
+    }
+  }, [chatSearch, selectedFriend]);
+
+  const pinMessage = async (messageId) => {
+    if (!user || !selectedFriend) return;
+    try {
+      const res = await authedFetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'pin', messageId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMessages(prev => prev.map(m => m.id === messageId ? { ...m, pinnedAt: new Date().toISOString() } : m));
+        addToast('Mensagem fixada.', 'success');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const unpinMessage = async (messageId) => {
+    if (!user || !selectedFriend) return;
+    try {
+      const res = await authedFetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'unpin', messageId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMessages(prev => prev.map(m => m.id === messageId ? { ...m, pinnedAt: null } : m));
+        addToast('Mensagem desfixada.', 'info');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   // Entra/sai da sala do grupo conforme o chat ativo
   useEffect(() => {
     if (selectedGroup && socket) {
@@ -1702,6 +2083,68 @@ export default function Home() {
     }
   };
 
+  const leaveGroup = async () => {
+    if (!selectedGroup) return;
+    try {
+      const res = await authedFetch('/api/groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'leave', groupId: selectedGroup.id })
+      });
+      const data = await res.json();
+      if (data.success) {
+        addToast('Você saiu do grupo.', 'info');
+        setSelectedGroup(null);
+        setShowGroupManageModal(false);
+        loadGroups();
+      } else {
+        addToast(data.error || 'Erro ao sair do grupo.', 'warning');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const removeGroupMember = async (targetUserId) => {
+    if (!selectedGroup) return;
+    try {
+      const res = await authedFetch('/api/groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'remove_member', groupId: selectedGroup.id, userId: targetUserId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        addToast('Membro removido do grupo.', 'success');
+        selectGroup(selectedGroup.id);
+      } else {
+        addToast(data.error || 'Erro ao remover membro.', 'warning');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const transferGroupAdmin = async (targetUserId) => {
+    if (!selectedGroup) return;
+    try {
+      const res = await authedFetch('/api/groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'transfer_admin', groupId: selectedGroup.id, userId: targetUserId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        addToast('Propriedade do grupo transferida.', 'success');
+        selectGroup(selectedGroup.id);
+      } else {
+        addToast(data.error || 'Erro ao transferir admin.', 'warning');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   // --- Adicionar amigo à chamada em andamento ---
   const addToCall = async (friend) => {
     if (!activeCallRoom) return;
@@ -1732,11 +2175,28 @@ export default function Home() {
     }
   }, [user]);
 
+  const [adminStats, setAdminStats] = useState(null);
+  const loadAdminStats = useCallback(async () => {
+    if (!user || user.role === 'user') return;
+    try {
+      const res = await authedFetch('/api/admin?action=stats');
+      const data = await res.json();
+      if (data.success) {
+        setAdminStats(data.stats);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }, [user]);
+
   useEffect(() => {
     if (!showAdminPanel) return;
-    const timer = setTimeout(loadAdminReports, 0);
+    const timer = setTimeout(() => {
+      loadAdminReports();
+      loadAdminStats();
+    }, 0);
     return () => clearTimeout(timer);
-  }, [showAdminPanel, loadAdminReports]);
+  }, [showAdminPanel, loadAdminReports, loadAdminStats]);
 
   const handleAdminAction = async (targetUserId, action, durationDays = 0) => {
     setAdminStatusMsg('');
@@ -2107,6 +2567,15 @@ export default function Home() {
                     )}
                   </div>
                 </div>
+                {(g.myRole === 'owner' || g.myRole === 'admin') && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setSelectedGroup(g); setShowGroupManageModal(true); }}
+                    title="Gerenciar grupo"
+                    style={{ color: 'var(--gold)', background: 'none', border: 'none', padding: '4px', display: 'flex' }}
+                  >
+                    <Settings size={14} />
+                  </button>
+                )}
               </div>
             ))
           )}
@@ -2150,6 +2619,46 @@ export default function Home() {
               </div>
             )}
 
+            <div className="glass-card" style={{ border: '1px solid var(--line)', marginBottom: '16px' }}>
+              <h3 style={{ marginBottom: '12px', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <BarChart3 size={16} /> Estatísticas
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px' }}>
+                <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.activeUsers ?? '-'}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Online agora</div>
+                </div>
+                <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalUsers ?? '-'}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Usuários</div>
+                </div>
+                <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalMessages ?? '-'}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Msgs privadas</div>
+                </div>
+                <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalGroupMessages ?? '-'}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Msgs em grupo</div>
+                </div>
+                <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalCalls ?? '-'}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Chamadas</div>
+                </div>
+                <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--red)' }}>{adminStats?.totalBans ?? '-'}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Bans ativos</div>
+                </div>
+                <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalFiles ?? '-'}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Arquivos</div>
+                </div>
+                <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalWarnings ?? '-'}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Advertências</div>
+                </div>
+              </div>
+            </div>
+
             <div className="glass-card" style={{ border: '1px solid var(--line)' }}>
               <h3 style={{ marginBottom: '12px', fontSize: '16px' }}>Denúncias Recebidas</h3>
               {reports.length === 0 ? (
@@ -2177,6 +2686,9 @@ export default function Home() {
                           </button>
                         ) : (
                           <>
+                            <button onClick={() => handleAdminAction(rep.reportedId, 'warn')} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', minHeight: '34px' }}>
+                              Advertir
+                            </button>
                             <button onClick={() => handleAdminAction(rep.reportedId, 'ban', 1)} className="btn-primary" style={{ background: 'var(--red)', color: '#fff', padding: '6px 12px', fontSize: '12px', minHeight: '34px' }}>
                               Banir 1 Dia
                             </button>
@@ -2247,9 +2759,14 @@ export default function Home() {
               
               <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '4px' : '6px' }}>
                 {selectedGroup ? (
-                  <button className="btn-primary" onClick={() => setShowAddMemberModal(true)} title="Adicionar participante" style={{ padding: isMobile ? '6px 10px' : '8px 12px', minHeight: isMobile ? '32px' : '36px', fontSize: isMobile ? '11px' : '12px' }}>
-                    <UserPlus size={isMobile ? 13 : 15} /> {isMobile ? '' : 'Adicionar'}
-                  </button>
+                  <>
+                    <button className="btn-primary" onClick={() => setShowAddMemberModal(true)} title="Adicionar participante" style={{ padding: isMobile ? '6px 10px' : '8px 12px', minHeight: isMobile ? '32px' : '36px', fontSize: isMobile ? '11px' : '12px' }}>
+                      <UserPlus size={isMobile ? 13 : 15} /> {isMobile ? '' : 'Adicionar'}
+                    </button>
+                    <button onClick={() => setShowGroupManageModal(true)} title="Gerenciar grupo" style={{ color: 'var(--text)', background: 'var(--bg-3)', padding: isMobile ? '6px' : '8px', borderRadius: '6px', border: '1px solid var(--line)', minHeight: isMobile ? '32px' : '36px' }}>
+                      <Settings size={14} />
+                    </button>
+                  </>
                 ) : inRandomChat ? (
                   <>
                     {/* Botão de Solicitação de Amizade */}
@@ -2410,8 +2927,33 @@ export default function Home() {
             )}
 
             {/* Histórico de Mensagens */}
+            {selectedFriend && !selectedGroup && !inRandomChat && (
+              <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)', display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
+                <input
+                  type="text"
+                  value={chatSearch}
+                  onChange={e => setChatSearch(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') searchChat(); }}
+                  placeholder="Buscar no chat..."
+                  style={{ flex: 1, fontSize: '12px', padding: '8px 10px', minHeight: '36px' }}
+                />
+                <button type="button" onClick={searchChat} className="btn-primary" style={{ padding: '8px 12px', minHeight: '36px', fontSize: '11px' }}>
+                  Buscar
+                </button>
+                {chatSearch && (
+                  <button type="button" onClick={() => { setChatSearch(''); setSearchResults([]); }} style={{ color: 'var(--muted)', background: 'none', border: 'none', padding: '4px' }}>
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            )}
+            {searchResults.length > 0 && (
+              <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--gold)', background: 'var(--bg-3)', flexShrink: 0 }}>
+                <span style={{ fontSize: '11px', color: 'var(--gold)' }}>{searchResults.length} resultado(s) para "{chatSearch}"</span>
+              </div>
+            )}
             <div style={{ flex: 1, overflowY: 'auto', padding: '16px 12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {messages.map((msg) => {
+              {(chatSearch ? searchResults : messages).map((msg) => {
                 const isMe = msg.senderId === user.id;
                 const liked = (msg.likedBy || []).includes(user.id);
 
@@ -2506,28 +3048,67 @@ export default function Home() {
                           </p>
                         )}
                         
-                        {msg.likedBy.length > 0 && (
-                          <div style={{ 
-                            position: 'absolute', 
-                            bottom: '-10px', 
-                            right: '8px', 
-                            background: 'var(--bg-2)', 
-                            border: '1px solid var(--line)', 
-                            borderRadius: '10px', 
-                            padding: '2px 5px', 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: '2px',
-                            fontSize: '8px',
-                            color: 'var(--gold)'
-                          }}>
-                            <Heart size={8} fill="var(--gold)" />
-                            <span>{msg.likedBy.length}</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                         {msg.likedBy.length > 0 && (
+                           <div style={{ 
+                             position: 'absolute', 
+                             bottom: '-10px', 
+                             right: '8px', 
+                             background: 'var(--bg-2)', 
+                             border: '1px solid var(--line)', 
+                             borderRadius: '10px', 
+                             padding: '2px 5px', 
+                             display: 'flex', 
+                             alignItems: 'center', 
+                             gap: '2px',
+                             fontSize: '8px',
+                             color: 'var(--gold)'
+                           }}>
+                             <Heart size={8} fill="var(--gold)" />
+                             <span>{msg.likedBy.length}</span>
+                           </div>
+                         )}
 
+                         {reactions[msg.id] && Object.keys(reactions[msg.id]).length > 0 && (
+                           <div style={{ 
+                             position: 'absolute', 
+                             bottom: '-22px', 
+                             right: '8px', 
+                             background: 'var(--bg-2)', 
+                             border: '1px solid var(--line)', 
+                             borderRadius: '10px', 
+                             padding: '2px 6px', 
+                             display: 'flex', 
+                             alignItems: 'center', 
+                             gap: '4px',
+                             flexWrap: 'wrap',
+                             maxWidth: '180px'
+                           }}>
+                             {Object.entries(reactions[msg.id]).map(([emoji, users]) => (
+                               <button
+                                 key={emoji}
+                                 onClick={() => toggleReaction(msg.id, emoji)}
+                                 style={{ 
+                                   background: users.some(u => u.id === user.id) ? 'var(--gold-soft)' : 'transparent',
+                                   border: '1px solid var(--line)',
+                                   borderRadius: '8px',
+                                   padding: '1px 4px',
+                                   fontSize: '10px',
+                                   cursor: 'pointer',
+                                   display: 'flex',
+                                   alignItems: 'center',
+                                   gap: '2px'
+                                 }}
+                               >
+                                 <span>{emoji}</span>
+                                 <span style={{ fontSize: '9px', color: 'var(--muted)' }}>{users.length}</span>
+                               </button>
+                             ))}
+                           </div>
+                         )}
+                       </div>
+                     )}
+
+                   
                     <div style={{ 
                       display: 'flex', 
                       gap: '8px', 
@@ -2546,11 +3127,34 @@ export default function Home() {
                       <button onClick={() => handleLikeMessage(msg.id)} style={{ color: liked ? 'var(--gold)' : 'var(--muted)', border: 'none', background: 'none' }}>
                         {liked ? 'Descurtir' : 'Curtir'}
                       </button>
+                      <button onClick={() => setReactionPicker(reactionPicker?.messageId === msg.id ? null : { messageId: msg.id })} style={{ color: 'var(--muted)', border: 'none', background: 'none' }}>
+                        <Smile size={11} />
+                      </button>
+                      {msg.pinnedAt ? (
+                        <button onClick={() => unpinMessage(msg.id)} style={{ color: 'var(--gold)', border: 'none', background: 'none', fontWeight: '700' }}>📌 Fixada</button>
+                      ) : (
+                        <button onClick={() => pinMessage(msg.id)} style={{ color: 'var(--muted)', border: 'none', background: 'none' }}>📌</button>
+                      )}
                       {isMe && selectedFriend && !inRandomChat && msg.type !== 'call' && (
                         <button onClick={() => startEditMessage(msg)} style={{ color: 'var(--gold)', border: 'none', background: 'none' }}>Editar</button>
                       )}
                       {isMe && selectedFriend && !inRandomChat && (
                         <button onClick={() => handleDeleteMessage(msg.id)} style={{ color: 'var(--red)', border: 'none', background: 'none' }}>Apagar</button>
+                      )}
+
+                      {reactionPicker?.messageId === msg.id && (
+                        <div style={{ position: 'absolute', bottom: '24px', right: '0', background: 'var(--bg-3)', border: '1px solid var(--gold)', borderRadius: '10px', padding: '6px', display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: '2px', zIndex: 30, boxShadow: '0 4px 16px rgba(0,0,0,0.5)' }}>
+                          {EMOJIS.slice(0, 32).map((em, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => { toggleReaction(msg.id, em); setReactionPicker(null); }}
+                              style={{ fontSize: '14px', padding: '3px', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '4px' }}
+                            >
+                              {em}
+                            </button>
+                          ))}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -2560,7 +3164,7 @@ export default function Home() {
             </div>
 
             {/* Input Bar */}
-            <form onSubmit={(e) => { e.preventDefault(); if (attachment) { sendMediaMessage(); } else if (selectedGroup) { sendGroupMessage(e); } else { handleSendMessage(e); } }} style={{ padding: isMobile ? '8px' : '12px', background: 'var(--bg-2)', borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0 }}>
+            <form onSubmit={(e) => { e.preventDefault(); if (isRecordingVoice) { sendVoiceMessage(); } else if (attachment) { sendMediaMessage(); } else if (selectedGroup) { sendGroupMessage(e); } else { handleSendMessage(e); } }} style={{ padding: isMobile ? '8px' : '12px', background: 'var(--bg-2)', borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0 }}>
               {replyingTo && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-3)', borderLeft: '3px solid var(--gold)', padding: '6px 12px', borderRadius: '4px' }}>
                   <div style={{ fontSize: '11px', minWidth: 0 }}>
@@ -2613,20 +3217,36 @@ export default function Home() {
                 <button type="button" onClick={() => fileInputRef.current && fileInputRef.current.click()} title="Enviar foto/vídeo/áudio" style={{ color: attachment ? 'var(--gold)' : 'var(--muted)', padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px' }}>
                   <Paperclip size={16} />
                 </button>
+                {isRecordingVoice ? (
+                  <button type="button" onClick={cancelVoiceRecording} title="Cancelar gravação" style={{ color: 'var(--red)', padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px', animation: 'pulse 1s infinite' }}>
+                    <MicOff size={16} />
+                  </button>
+                ) : (
+                  <button type="button" onClick={startVoiceRecording} title="Mensagem de voz" style={{ color: 'var(--muted)', padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px' }}>
+                    <Mic size={16} />
+                  </button>
+                )}
                 <button type="button" onClick={() => setShowEmojiPicker(v => !v)} title="Emojis" style={{ color: showEmojiPicker ? 'var(--gold)' : 'var(--muted)', padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px' }}>
                   <Smile size={16} />
                 </button>
                 <input 
                   type="text" 
-                  placeholder={attachment ? 'Legenda (opcional)...' : "Escreva..."} 
+                  placeholder={isRecordingVoice ? `Gravando... ${voiceDuration}s` : attachment ? 'Legenda (opcional)...' : "Escreva..."} 
                   value={messageText}
                   onChange={e => { setMessageText(e.target.value); if (!selectedGroup) handleTypingChange(); }}
                   onBlur={() => { if (!selectedGroup) stopTyping(); }}
-                  style={{ flex: 1, padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px', fontSize: '14px' }}
+                  disabled={isRecordingVoice}
+                  style={{ flex: 1, padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px', fontSize: '14px', opacity: isRecordingVoice ? 0.6 : 1 }}
                 />
-                <button type="submit" className="btn-primary" disabled={sendingMedia} style={{ padding: isMobile ? '8px 12px' : '10px 14px', minHeight: isMobile ? '36px' : '40px', opacity: sendingMedia ? 0.6 : 1 }}>
-                  {sendingMedia ? <Clock size={14} /> : attachment ? <Send size={14} /> : <Send size={14} />}
-                </button>
+                {isRecordingVoice ? (
+                  <button type="button" onClick={sendVoiceMessage} className="btn-primary" disabled={sendingMedia} style={{ padding: isMobile ? '8px 12px' : '10px 14px', minHeight: isMobile ? '36px' : '40px' }}>
+                    <Send size={14} />
+                  </button>
+                ) : (
+                  <button type="submit" className="btn-primary" disabled={sendingMedia} style={{ padding: isMobile ? '8px 12px' : '10px 14px', minHeight: isMobile ? '36px' : '40px', opacity: sendingMedia ? 0.6 : 1 }}>
+                    {sendingMedia ? <Clock size={14} /> : attachment ? <Send size={14} /> : <Send size={14} />}
+                  </button>
+                )}
                 {inRandomChat && matchMode === 'text' && (
                   <button type="button" className="btn-primary animate-pulse-glow" onClick={skipRandomMatch} title="Pular pessoa" style={{ padding: isMobile ? '8px 12px' : '10px 14px', minHeight: isMobile ? '36px' : '40px' }}>
                     <SkipForward size={14} />
@@ -2924,6 +3544,48 @@ export default function Home() {
                 <p style={{ color: 'var(--muted)', fontSize: '12px', fontStyle: 'italic' }}>Todos os seus amigos já estão no grupo.</p>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4.3 MODAL GERENCIAR GRUPO */}
+      {showGroupManageModal && selectedGroup && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1300, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div className="glass-card animate-slide-in" style={{ maxWidth: '420px', width: '100%', border: '1px solid var(--line)', padding: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <h3 style={{ color: 'var(--gold)', fontSize: '16px' }}>Gerenciar Grupo</h3>
+              <button onClick={() => setShowGroupManageModal(false)} style={{ color: 'var(--muted)', background: 'none', border: 'none', padding: '6px' }}><X /></button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '320px', overflowY: 'auto', marginBottom: '14px' }}>
+              {(selectedGroup.members || []).map(m => {
+                const isOwner = m.role === 'owner';
+                const isMe = m.userId === user.id;
+                return (
+                  <div key={m.userId} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', background: 'var(--bg-3)', border: '1px solid var(--line)', borderRadius: '6px' }}>
+                    <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: 'var(--gold-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold', color: 'var(--gold)', flexShrink: 0 }}>
+                      {m.username[0].toUpperCase()}
+                    </div>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: '13px' }}>{m.username} {isOwner && <span style={{ fontSize: '10px', color: 'var(--gold)' }}>(Dono)</span>}</div>
+                      <div style={{ fontSize: '10px', color: 'var(--muted)' }}>{m.customId}</div>
+                    </div>
+                    {!isMe && !isOwner && (
+                      <button onClick={() => { removeGroupMember(m.userId); }} style={{ color: 'var(--red)', background: 'none', border: 'none', padding: '4px', fontSize: '11px' }}>
+                        <Trash size={13} />
+                      </button>
+                    )}
+                    {!isMe && !isOwner && user.role === 'owner' && (
+                      <button onClick={() => { transferGroupAdmin(m.userId); }} style={{ color: 'var(--gold)', background: 'none', border: 'none', padding: '4px', fontSize: '11px' }}>
+                        <ShieldAlert size={13} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <button onClick={leaveGroup} className="btn-secondary" style={{ width: '100%', justifyContent: 'center', minHeight: '40px', background: 'var(--red)', color: '#fff', border: 'none' }}>
+              <LogOut size={14} /> Sair do Grupo
+            </button>
           </div>
         </div>
       )}
