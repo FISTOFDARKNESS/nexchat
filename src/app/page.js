@@ -41,20 +41,20 @@ function MediaPreview({ msg }) {
   const [playing, setPlaying] = useState(false);
   const [curTime, setCurTime] = useState(0);
   const [duration, setDuration] = useState(0);
+
+  // Countdown: quanto falta para a visualização única sumir (15s após abrir)
+  useEffect(() => {
+    if (!viewOnce || !opened) return;
+    const t = setInterval(() => setRemaining(prev => (prev === null ? prev : Math.max(0, prev - 1))), 1000);
+    return () => clearInterval(t);
+  }, [viewOnce, opened]);
+
   // Arquivo não existe mais (registro órfão): não renderiza nada
   if (!url || (!mime && !name)) return null;
 
   const isImage = mime && mime.startsWith('image/');
   const isVideo = mime && mime.startsWith('video/');
   const isAudio = mime && mime.startsWith('audio/');
-
-  // Countdown: quanto falta para a visualização única sumir (15s após abrir)
-  useEffect(() => {
-    if (!viewOnce || !opened) return;
-    setRemaining(15);
-    const t = setInterval(() => setRemaining(prev => (prev === null ? prev : Math.max(0, prev - 1))), 1000);
-    return () => clearInterval(t);
-  }, [viewOnce, opened]);
 
   const toggleAudio = () => {
     const el = audioRef.current;
@@ -75,7 +75,7 @@ function MediaPreview({ msg }) {
     const Icon = isVideo ? Video : isAudio ? Mic : Eye;
     return (
       <button
-        onClick={() => setOpened(true)}
+        onClick={() => { setOpened(true); setRemaining(15); }}
         title={label}
         style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -404,6 +404,7 @@ export default function Home() {
   const remoteAudioElsRef = useRef({}); // peerId -> <audio> (chamadas sem vídeo)
   const messagesEndRef = useRef(null);
   const localStreamRef = useRef(null);
+  const pendingIceRef = useRef({}); // peerId -> [candidatos ICE antes do remote description]
 
   // WebRTC mesh: um RTCPeerConnection por participante (peerId -> pc)
   const pcsRef = useRef({});
@@ -799,6 +800,25 @@ export default function Home() {
     setConsentGranted(true);
   };
 
+  // Garante que o stream local exista antes de criar o PeerConnection
+  const ensureLocalStream = useCallback(async () => {
+    if (localStreamRef.current) return localStreamRef.current;
+    if (!useMediaRef.current) return null;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      localStreamRef.current = stream;
+      setUseMedia(true);
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+        localVideoRef.current.play().catch(e => console.log(e));
+      }
+      return stream;
+    } catch (err) {
+      console.warn('Falha ao obter stream local:', err.message);
+      return null;
+    }
+  }, []);
+
   const removeCallListeners = useCallback(() => {
     if (!socket) return;
     callListenersRef.current.forEach(({ event, handler }) => socket.off(event, handler));
@@ -835,6 +855,25 @@ export default function Home() {
       tracks.forEach(track => {
         pc.addTrack(track, localStreamRef.current);
       });
+    } else if (useMediaRef.current) {
+      // Stream ainda não carregou: pega quando chegar e renova a oferta
+      ensureLocalStream().then(stream => {
+        if (!stream || !pcsRef.current[peerId]) return;
+        const tracks = isAudioOnly ? stream.getAudioTracks() : stream.getTracks();
+        tracks.forEach(track => {
+          try { pcsRef.current[peerId].addTrack(track, stream); } catch { /* já adicionada */ }
+        });
+        // Renegocia para o parceiro receber a câmera recém-adicionada
+        const myPc = pcsRef.current[peerId];
+        myPc.onnegotiationneeded = () => {
+          if (myPc.signalingState === 'stable') {
+            myPc.createOffer().then(o => myPc.setLocalDescription(o)).then(() => {
+              socket.emit('webrtc_offer', { roomId, from: userRef.current?.id, to: peerId, offer: myPc.localDescription });
+            }).catch(() => {});
+          }
+        };
+        try { myPc.onnegotiationneeded(); } catch { /* sem fire manual */ }
+      });
     }
 
     pc.ontrack = (event) => {
@@ -849,7 +888,12 @@ export default function Home() {
       }
     };
 
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[webrtc] ICE ${pc.iceConnectionState} com ${peerId}`);
+    };
+
     pc.onconnectionstatechange = () => {
+      console.log(`[webrtc] connection ${pc.connectionState} com ${peerId}`);
       if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
         cleanupPeer(peerId);
       }
@@ -864,7 +908,7 @@ export default function Home() {
     }
 
     return pc;
-  }, [cleanupPeer]);
+  }, [cleanupPeer, ensureLocalStream]);
 
   const cleanupCall = useCallback(() => {
     removeCallListeners();
@@ -916,6 +960,7 @@ export default function Home() {
 
       if (matchModeRef.current === 'video' && useMediaRef.current) {
         setQueueStatusText('Iniciando stream de vídeo...');
+        await ensureLocalStream();
         getOrCreatePC(partner.userId, roomId, role, false);
       }
     });
@@ -969,6 +1014,12 @@ export default function Home() {
       const pc = getOrCreatePC(from, roomId, 'receiver', callTypeRef.current === 'audio');
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        // Descarrega candidatos ICE que chegaram antes do remote description
+        const buffered = pendingIceRef.current[from] || [];
+        delete pendingIceRef.current[from];
+        for (const c of buffered) {
+          try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch { /* inválido/duplicado */ }
+        }
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         socket.emit('webrtc_answer', { roomId, from: user.id, to: from, answer });
@@ -984,6 +1035,12 @@ export default function Home() {
       if (pc) {
         try {
           await pc.setRemoteDescription(new RTCSessionDescription(answer));
+          // Descarrega candidatos ICE que chegaram antes do remote description
+          const buffered = pendingIceRef.current[from] || [];
+          delete pendingIceRef.current[from];
+          for (const c of buffered) {
+            try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch { /* inválido/duplicado */ }
+          }
         } catch (err) {
           console.error('Erro ao processar webrtc_answer:', err);
         }
@@ -994,26 +1051,32 @@ export default function Home() {
       const { from, to, candidate } = data;
       if (!from || to !== user.id) return;
       const pc = pcsRef.current[from];
-      if (pc && candidate) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (e) {
-          console.error('Erro ao adicionar ICE Candidate:', e);
-        }
+      if (!pc || !candidate) return;
+      // Se o remote description ainda não foi aplicado, guarda para depois
+      if (!pc.remoteDescription) {
+        (pendingIceRef.current[from] = pendingIceRef.current[from] || []).push(candidate);
+        return;
+      }
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (e) {
+        console.error('Erro ao adicionar ICE Candidate:', e);
       }
     });
 
     // Novo participante entrou na chamada (cria PC receptor para ele)
-    socket.on('participant_joined', ({ userId }) => {
+    socket.on('participant_joined', async ({ userId }) => {
       if (userId !== user.id && activeCallRoomRef.current) {
+        await ensureLocalStream();
         getOrCreatePC(userId, activeCallRoomRef.current, 'receiver', callTypeRef.current === 'audio');
       }
     });
 
     // Lista de participantes enviada a quem acabou de aceitar (cria PCs chamadores)
-    socket.on('call_participants', ({ participants }) => {
+    socket.on('call_participants', async ({ participants }) => {
       const roomId = activeCallRoomRef.current;
       if (!roomId) return;
+      await ensureLocalStream();
       participants.forEach(pid => {
         if (pid !== user.id) {
           getOrCreatePC(pid, roomId, 'caller', callTypeRef.current === 'audio');
@@ -1230,7 +1293,7 @@ export default function Home() {
         socket.disconnect();
       }
     };
-  }, [user, loadFriends, addToast, getOrCreatePC, cleanupCall, removeCallListeners, markMessagesRead, logCall, loadGroups, loadBlocks, playBeep]);
+  }, [user, loadFriends, addToast, getOrCreatePC, cleanupCall, removeCallListeners, markMessagesRead, logCall, loadGroups, loadBlocks, playBeep, ensureLocalStream]);
 
   // --- Ações de Login ---
   const handleAuth = async (e) => {
@@ -1991,6 +2054,7 @@ export default function Home() {
       setCallState('connected');
       addToast('Chamada conectada!', 'success');
       if (useMediaRef.current) {
+        await ensureLocalStream();
         getOrCreatePC(selectedFriendRef.current.friendId, callRoomId, 'caller', type === 'audio');
       }
     };
@@ -2032,6 +2096,7 @@ export default function Home() {
       // nele criamos os PCs chamadores. Em chamada de grupo não há peer para o host (só via eventos).
       if (!incomingCall.isGroup) {
         // 'callee': não cria oferta (quem chama é quem oferece) -> evita glare de ofertas cruzadas
+        await ensureLocalStream();
         getOrCreatePC(incomingCall.callerId, callRoomId, 'callee', type === 'audio');
       }
     }

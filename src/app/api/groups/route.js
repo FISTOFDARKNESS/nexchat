@@ -100,8 +100,8 @@ export async function POST(req) {
       const group = result[0];
       for (const uid of members) {
         await sql(
-          `INSERT INTO "GroupMember" ("groupId", "userId", role) VALUES ($1, $2, CASE WHEN $2 = $3 THEN 'owner' ELSE 'member' END) ON CONFLICT DO NOTHING`,
-          [group.id, uid, userId]
+          `INSERT INTO "GroupMember" ("groupId", "userId", role) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+          [group.id, uid, uid === userId ? 'owner' : 'member']
         );
       }
       return NextResponse.json({ success: true, group });
