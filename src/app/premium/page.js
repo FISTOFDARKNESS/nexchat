@@ -1,12 +1,32 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Crown, Check, Zap } from 'lucide-react';
+import { Crown, Check, Zap, ToggleLeft, Palette } from 'lucide-react';
+
+const THEMES = {
+  default: { name: 'Dourado', vars: { '--gold': '#EAC847', '--amber': '#D97706', '--gold-soft': 'rgba(234, 200, 71, 0.12)', '--gold-glow': 'rgba(234, 200, 71, 0.35)' } },
+  midnight: { name: 'Meia-noite', vars: { '--gold': '#818CF8', '--amber': '#6366F1', '--gold-soft': 'rgba(129, 140, 248, 0.12)', '--gold-glow': 'rgba(129, 140, 248, 0.35)' } },
+  forest: { name: 'Floresta', vars: { '--gold': '#4ADE80', '--amber': '#16A34A', '--gold-soft': 'rgba(74, 222, 128, 0.12)', '--gold-glow': 'rgba(74, 222, 128, 0.35)' } },
+  rose: { name: 'Rosa', vars: { '--gold': '#FB7185', '--amber': '#E11D48', '--gold-soft': 'rgba(251, 113, 133, 0.12)', '--gold-glow': 'rgba(251, 113, 133, 0.35)' } },
+  ocean: { name: 'Oceano', vars: { '--gold': '#22D3EE', '--amber': '#0891B2', '--gold-soft': 'rgba(34, 211, 238, 0.12)', '--gold-glow': 'rgba(34, 211, 238, 0.35)' } }
+};
+
+function applyTheme(themeKey) {
+  const root = document.documentElement;
+  const theme = THEMES[themeKey] || THEMES.default;
+  Object.entries(theme.vars).forEach(([key, value]) => {
+    root.style.setProperty(key, value);
+  });
+  localStorage.setItem('nexchat_theme', themeKey);
+}
 
 export default function PremiumPage() {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [buying, setBuying] = useState(false);
+  const [chatTheme, setChatTheme] = useState('default');
+  const [invisibleMode, setInvisibleMode] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('nexchat_token');
@@ -20,7 +40,12 @@ export default function PremiumPage() {
           headers: { Authorization: `Bearer ${token}` }
         });
         const data = await res.json();
-        if (data.success) setStatus(data);
+        if (data.success) {
+          setStatus(data);
+          setChatTheme(data.chatTheme || 'default');
+          setInvisibleMode(data.invisibleMode || false);
+          if (data.chatTheme) applyTheme(data.chatTheme);
+        }
       } catch (e) {
         console.error(e);
       } finally {
@@ -39,7 +64,11 @@ export default function PremiumPage() {
       })
         .then(res => res.json())
         .then(data => {
-          if (data.success) setStatus(data);
+          if (data.success) {
+            setStatus(data);
+            setChatTheme(data.chatTheme || 'default');
+            setInvisibleMode(data.invisibleMode || false);
+          }
           setLoading(false);
         })
         .catch(() => setLoading(false));
@@ -70,6 +99,30 @@ export default function PremiumPage() {
     }
   };
 
+  const saveSettings = async () => {
+    setSaving(true);
+    try {
+      const token = localStorage.getItem('nexchat_token');
+      const res = await fetch('/api/users', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ chatTheme, invisibleMode })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatus(prev => ({ ...prev, chatTheme, invisibleMode }));
+        applyTheme(chatTheme);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--text)' }}>
@@ -94,16 +147,36 @@ export default function PremiumPage() {
 
         {isPremium ? (
           <div style={{ background: 'var(--bg-3)', border: '1px solid var(--gold)', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
               <Zap size={16} style={{ color: 'var(--gold)' }} />
               <span style={{ fontSize: '16px', fontWeight: '700', color: 'var(--gold)' }}>Plano Ativo</span>
             </div>
-            <p style={{ fontSize: '12px', color: 'var(--text)' }}>Expira em: {status.premiumExpiresAt ? new Date(status.premiumExpiresAt).toLocaleString('pt-BR') : '-'}</p>
-            <p style={{ fontSize: '12px', color: 'var(--muted)' }}>Tema: {status.chatTheme || 'Padrão'}</p>
+            <p style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '12px' }}>Expira em: {status.premiumExpiresAt ? new Date(status.premiumExpiresAt).toLocaleString('pt-BR') : '-'}</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text)' }}>Modo invisível</span>
+                <button onClick={() => setInvisibleMode(prev => !prev)} style={{ background: invisibleMode ? 'var(--gold)' : 'var(--line)', border: 'none', borderRadius: '20px', width: '44px', height: '24px', position: 'relative', cursor: 'pointer', padding: 0 }}>
+                  <div style={{ position: 'absolute', top: '2px', left: invisibleMode ? '22px' : '2px', width: '20px', height: '20px', borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
+                </button>
+              </div>
+              <div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>
+                  <Palette size={12} /> Tema do chat
+                </label>
+                <select value={chatTheme} onChange={e => setChatTheme(e.target.value)} style={{ width: '100%', fontSize: '12px', padding: '8px', background: 'var(--bg)', border: '1px solid var(--line)', color: '#fff', borderRadius: '6px' }}>
+                  {Object.entries(THEMES).map(([key, t]) => (
+                    <option key={key} value={key}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+              <button onClick={saveSettings} disabled={saving} className="btn-primary" style={{ width: '100%', justifyContent: 'center', minHeight: '38px', fontSize: '12px', marginTop: '4px' }}>
+                {saving ? 'Salvando...' : 'Salvar configurações'}
+              </button>
+            </div>
           </div>
         ) : (
           <div style={{ background: 'var(--bg-3)', border: '1px solid var(--line)', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
               <span style={{ fontSize: '20px', fontWeight: '700', color: '#fff' }}>R$ 34,99</span>
               <span style={{ fontSize: '12px', color: 'var(--muted)' }}>/mês</span>
             </div>

@@ -8,7 +8,7 @@ import {
   Moon, CheckSquare, Settings, AlertCircle, VolumeX, Mic, MicOff, VideoOff, Play,
   Pause,
   Plus, CheckCircle, Clock, Info, ChevronLeft, SkipForward, CheckCheck, FileText, Paperclip, Eye,
-  BarChart3, Megaphone, Search, History, Crown
+  BarChart3, Megaphone, Search, History, Crown, ToggleLeft, Palette
 } from 'lucide-react';
 
 let socket;
@@ -31,6 +31,48 @@ function formatFileSize(bytes) {
 
 function getTs() {
   return Date.now();
+}
+
+const THEMES = {
+  default: {
+    name: 'Dourado',
+    vars: {
+      '--gold': '#EAC847', '--amber': '#D97706', '--gold-soft': 'rgba(234, 200, 71, 0.12)', '--gold-glow': 'rgba(234, 200, 71, 0.35)'
+    }
+  },
+  midnight: {
+    name: 'Meia-noite',
+    vars: {
+      '--gold': '#818CF8', '--amber': '#6366F1', '--gold-soft': 'rgba(129, 140, 248, 0.12)', '--gold-glow': 'rgba(129, 140, 248, 0.35)'
+    }
+  },
+  forest: {
+    name: 'Floresta',
+    vars: {
+      '--gold': '#4ADE80', '--amber': '#16A34A', '--gold-soft': 'rgba(74, 222, 128, 0.12)', '--gold-glow': 'rgba(74, 222, 128, 0.35)'
+    }
+  },
+  rose: {
+    name: 'Rosa',
+    vars: {
+      '--gold': '#FB7185', '--amber': '#E11D48', '--gold-soft': 'rgba(251, 113, 133, 0.12)', '--gold-glow': 'rgba(251, 113, 133, 0.35)'
+    }
+  },
+  ocean: {
+    name: 'Oceano',
+    vars: {
+      '--gold': '#22D3EE', '--amber': '#0891B2', '--gold-soft': 'rgba(34, 211, 238, 0.12)', '--gold-glow': 'rgba(34, 211, 238, 0.35)'
+    }
+  }
+};
+
+function applyTheme(themeKey) {
+  const root = document.documentElement;
+  const theme = THEMES[themeKey] || THEMES.default;
+  Object.entries(theme.vars).forEach(([key, value]) => {
+    root.style.setProperty(key, value);
+  });
+  localStorage.setItem('nexchat_theme', themeKey);
 }
 
 // Preview de mídia dentro da mensagem
@@ -369,6 +411,14 @@ export default function Home() {
     }
   }, [pendingPremiumCheck, premiumStatus]);
 
+  useEffect(() => {
+    const saved = localStorage.getItem('nexchat_theme');
+    if (saved && THEMES[saved]) {
+      applyTheme(saved);
+      setChatTheme(saved);
+    }
+  }, []);
+
   // --- Denúncia ---
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportReason, setReportReason] = useState('Comportamento impróprio');
@@ -435,6 +485,8 @@ export default function Home() {
   const [editProfileMode, setEditProfileMode] = useState(false);
   const [editBio, setEditBio] = useState('');
   const [editStatus, setEditStatus] = useState('');
+  const [editingUsername, setEditingUsername] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
 
   // --- Referências de Elementos e WebRTC ---
   const localVideoRef = useRef(null);
@@ -1658,6 +1710,8 @@ export default function Home() {
   const openEditProfile = () => {
     setEditBio(user.bio || '');
     setEditStatus(user.status || '');
+    setEditingUsername(false);
+    setNewUsername('');
     setEditProfileMode(true);
   };
 
@@ -1679,6 +1733,31 @@ export default function Home() {
         addToast('Perfil atualizado!', 'success');
       } else {
         addToast(data.error || 'Erro ao salvar perfil', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const changeUsername = async () => {
+    if (!newUsername || !newUsername.trim()) return;
+    try {
+      const res = await authedFetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: newUsername.trim() })
+      });
+      const data = await res.json();
+      if (data.success) {
+        const updated = { ...user, username: data.user.username };
+        setUser(updated);
+        localStorage.setItem('nexchat_user', JSON.stringify(updated));
+        if (profileUser && profileUser.id === user.id) setProfileUser({ ...profileUser, username: data.user.username });
+        setEditingUsername(false);
+        setNewUsername('');
+        addToast('Nome alterado com sucesso!', 'success');
+      } else {
+        addToast(data.error || 'Erro ao alterar nome', 'error');
       }
     } catch (err) {
       console.error(err);
@@ -2443,21 +2522,23 @@ export default function Home() {
     }
   };
 
-  const savePremiumSettings = async (e) => {
-    e.preventDefault();
+  const savePremiumSettings = async (e, overrideChatTheme, overrideInvisibleMode) => {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
     if (!user) return;
+    const ct = overrideChatTheme !== undefined ? overrideChatTheme : chatTheme;
+    const im = overrideInvisibleMode !== undefined ? overrideInvisibleMode : invisibleMode;
     try {
       const res = await authedFetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatTheme, invisibleMode })
+        body: JSON.stringify({ chatTheme: ct, invisibleMode: im })
       });
       const data = await res.json();
       if (data.success) {
         const updated = { ...user, ...data.user };
         setUser(updated);
         localStorage.setItem('nexchat_user', JSON.stringify(updated));
-        setPremiumStatus(prev => ({ ...prev, chatTheme, invisibleMode }));
+        setPremiumStatus(prev => ({ ...prev, chatTheme: ct, invisibleMode: im }));
         addToast('Configurações premium salvas!', 'success');
       } else {
         addToast(data.error || 'Erro ao salvar.', 'error');
@@ -4247,9 +4328,49 @@ export default function Home() {
                     </div>
 
                     {profileUser.id === user.id ? (
-                      <button className="btn-secondary" onClick={openEditProfile} style={{ width: '100%', justifyContent: 'center', minHeight: '40px' }}>
-                        <Settings size={14} /> Editar perfil
-                      </button>
+                      <>
+                        {premiumStatus?.premium && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '12px', textAlign: 'left', padding: '12px', background: 'var(--bg-3)', border: '1px solid var(--line)', borderRadius: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                              <Crown size={12} style={{ color: 'var(--gold)' }} />
+                              <span style={{ fontSize: '11px', color: 'var(--gold)', fontWeight: '600' }}>PREMIUM</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <span style={{ fontSize: '12px', color: 'var(--muted)' }}>Modo invisível</span>
+                              <button onClick={() => { const next = !invisibleMode; setInvisibleMode(next); savePremiumSettings({ preventDefault: () => {} }, chatTheme, next); }} style={{ background: invisibleMode ? 'var(--gold)' : 'var(--line)', border: 'none', borderRadius: '20px', width: '44px', height: '24px', position: 'relative', cursor: 'pointer', padding: 0 }}>
+                                <div style={{ position: 'absolute', top: '2px', left: invisibleMode ? '22px' : '2px', width: '20px', height: '20px', borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
+                              </button>
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Tema do chat</label>
+                              <select value={chatTheme} onChange={e => { const val = e.target.value; setChatTheme(val); savePremiumSettings({ preventDefault: () => {} }, val, invisibleMode); applyTheme(val); }} style={{ width: '100%', fontSize: '12px', padding: '8px', background: 'var(--bg)', border: '1px solid var(--line)', color: '#fff', borderRadius: '6px' }}>
+                                {Object.entries(THEMES).map(([key, t]) => (
+                                  <option key={key} value={key}>{t.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>
+                                <Crown size={10} style={{ color: 'var(--gold)' }} /> Nome de usuário
+                              </label>
+                              {editingUsername ? (
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                  <input type="text" value={newUsername} onChange={e => setNewUsername(e.target.value)} maxLength={30} style={{ flex: 1, fontSize: '12px', padding: '8px' }} autoFocus />
+                                  <button onClick={changeUsername} className="btn-primary" style={{ padding: '6px 12px', fontSize: '11px', minHeight: '32px' }}>Salvar</button>
+                                  <button onClick={() => setEditingUsername(false)} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '11px', minHeight: '32px' }}>Cancelar</button>
+                                </div>
+                              ) : (
+                                <button onClick={() => { setNewUsername(user.username); setEditingUsername(true); }} style={{ width: '100%', fontSize: '12px', padding: '8px', background: 'var(--gold-soft)', border: '1px solid var(--gold)', color: 'var(--gold)', borderRadius: '6px', cursor: 'pointer' }}>
+                                  Alterar nome
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        <button className="btn-secondary" onClick={openEditProfile} style={{ width: '100%', justifyContent: 'center', minHeight: '40px' }}>
+                          <Settings size={14} /> Editar perfil
+                        </button>
+                      </>
                     ) : (
                       <>
                         <button className="btn-primary" onClick={startChatFromProfile} style={{ width: '100%', justifyContent: 'center', minHeight: '40px', marginBottom: '8px' }}>
@@ -4472,11 +4593,27 @@ export default function Home() {
 
             {premiumStatus?.premium ? (
               <div style={{ background: 'var(--bg-3)', border: '1px solid var(--gold)', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
                   <CheckCircle size={16} style={{ color: 'var(--green)' }} />
                   <span style={{ fontSize: '16px', fontWeight: '700', color: 'var(--gold)' }}>Plano Ativo</span>
                 </div>
-                <p style={{ fontSize: '12px', color: 'var(--text)' }}>Expira em: {premiumStatus.premiumExpiresAt ? new Date(premiumStatus.premiumExpiresAt).toLocaleString('pt-BR') : '-'}</p>
+                <p style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '12px' }}>Expira em: {premiumStatus.premiumExpiresAt ? new Date(premiumStatus.premiumExpiresAt).toLocaleString('pt-BR') : '-'}</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '12px', color: 'var(--text)' }}>Modo invisível</span>
+                    <button onClick={() => { const next = !invisibleMode; setInvisibleMode(next); savePremiumSettings({ preventDefault: () => {} }, chatTheme, next); }} style={{ background: invisibleMode ? 'var(--gold)' : 'var(--line)', border: 'none', borderRadius: '20px', width: '44px', height: '24px', position: 'relative', cursor: 'pointer', padding: 0 }}>
+                      <div style={{ position: 'absolute', top: '2px', left: invisibleMode ? '22px' : '2px', width: '20px', height: '20px', borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
+                    </button>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Tema do chat</label>
+                    <select value={chatTheme} onChange={e => { const val = e.target.value; setChatTheme(val); savePremiumSettings({ preventDefault: () => {} }, val, invisibleMode); applyTheme(val); }} style={{ width: '100%', fontSize: '12px', padding: '8px', background: 'var(--bg)', border: '1px solid var(--line)', color: '#fff', borderRadius: '6px' }}>
+                      {Object.entries(THEMES).map(([key, t]) => (
+                        <option key={key} value={key}>{t.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </div>
             ) : (
               <div style={{ background: 'var(--bg-3)', border: '1px solid var(--line)', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
