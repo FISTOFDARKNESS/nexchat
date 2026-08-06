@@ -121,6 +121,7 @@ export async function GET(req, ctx) {
         'Content-Type': file.mime,
         'Content-Length': String(data.length),
         'Cache-Control': 'private, no-store',
+        'X-Content-Type-Options': 'nosniff',
         'Content-Disposition': 'inline'
       }
     });

@@ -67,18 +67,25 @@ function MediaPreview({ msg }) {
     );
   }
 
+  // Visualização única: bloqueia salvar/baixar (menu de contexto, arrastar), mantém replay
+  const protect = viewOnce ? {
+    onContextMenu: (e) => e.preventDefault(),
+    onDragStart: (e) => e.preventDefault(),
+    draggable: false
+  } : {};
+
   let preview = null;
   if (isImage) {
-    preview = <img src={url} alt={name || 'imagem'} style={{ maxWidth: '100%', maxHeight: '260px', borderRadius: '10px', display: 'block' }} />;
+    preview = <img src={url} alt={name || 'imagem'} {...protect} style={{ maxWidth: '100%', maxHeight: '260px', borderRadius: '10px', display: 'block', ...(viewOnce ? { userSelect: 'none', WebkitUserSelect: 'none', pointerEvents: 'auto' } : {}) }} />;
   } else if (isVideo) {
-    preview = <video src={url} controls autoPlay={viewOnce} playsInline style={{ maxWidth: '100%', maxHeight: '260px', borderRadius: '10px', display: 'block' }} />;
+    preview = <video src={url} controls autoPlay={viewOnce} playsInline controlsList={viewOnce ? 'nodownload' : undefined} disablePictureInPicture={viewOnce} {...protect} style={{ maxWidth: '100%', maxHeight: '260px', borderRadius: '10px', display: 'block' }} />;
   } else if (isAudio) {
     preview = (
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 2px' }}>
         <div style={{ width: '34px', height: '34px', borderRadius: '50%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
           <Mic size={16} color="#111" />
         </div>
-        <audio src={url} controls autoPlay={viewOnce} style={{ width: '200px', maxWidth: '100%', height: '34px' }} />
+        <audio src={url} controls autoPlay={viewOnce} controlsList={viewOnce ? 'nodownload' : undefined} {...protect} style={{ width: '200px', maxWidth: '100%', height: '34px' }} />
       </div>
     );
   } else {
