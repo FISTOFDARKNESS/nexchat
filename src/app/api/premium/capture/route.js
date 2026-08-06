@@ -2,12 +2,19 @@ import { NextResponse } from 'next/server';
 import { captureOrder } from '@/lib/paypal';
 import { sql } from '@/lib/db';
 
+function getHost(req) {
+  const host = req.headers.get('x-forwarded-host') || req.headers.get('host');
+  if (!host) return 'http://localhost:3000';
+  const proto = req.headers.get('x-forwarded-proto') || 'http';
+  return `${proto}://${host}`;
+}
+
 export async function GET(req) {
   try {
     const url = new URL(req.url);
     const token = url.searchParams.get('token');
     if (!token) {
-      return NextResponse.redirect(new URL('/premium?error=missing_token', req.url));
+      return NextResponse.redirect(new URL('/premium?error=missing_token', getHost(req)));
     }
 
     const capture = await captureOrder(token);
@@ -40,9 +47,9 @@ export async function GET(req) {
       }
     }
 
-    return NextResponse.redirect(new URL('/premium?success=1', req.url));
+    return NextResponse.redirect(new URL('/premium?success=1', getHost(req)));
   } catch (error) {
     console.error('Erro na API de Premium capture:', error);
-    return NextResponse.redirect(new URL('/premium?error=capture_failed', req.url));
+    return NextResponse.redirect(new URL('/premium?error=capture_failed', getHost(req)));
   }
 }
