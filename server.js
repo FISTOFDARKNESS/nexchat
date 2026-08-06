@@ -705,11 +705,15 @@ app.prepare().then(() => {
     console.log(`> Ready on http://${hostname}:${port}`);
   });
 
-  // Limpeza periódica: arquivos view-once/24h expirados
+  // Limpeza periódica: arquivos view-once/24h expirados e registros órfãos (físico sumiu)
   const UPLOADS_DIR = path.join(__dirname, 'uploads');
   async function cleanupExpiredFiles() {
     const pool = getDbPool();
     if (!pool) return;
+    const diskPath = (storagePath) => {
+      const parts = String(storagePath || '').replace(/\\/g, '/').split('/').filter(Boolean);
+      return path.join(UPLOADS_DIR, ...parts);
+    };
     try {
       const res = await pool.query(
         `SELECT id, "storagePath" FROM "File"
@@ -717,12 +721,16 @@ app.prepare().then(() => {
             OR ("viewOnce" = true AND "viewedAt" IS NOT NULL AND "viewedAt" < now() - interval '1 hour')`
       );
       for (const row of res.rows) {
-        try {
-          const fp = path.join(UPLOADS_DIR, path.basename(row.storagePath.replace(/\\/g, '/').split('/').pop()));
-          const full = path.join(UPLOADS_DIR, ...row.storagePath.replace(/\\/g, '/').split('/').filter(Boolean));
-          fs.unlink(full, () => {});
-        } catch { /* ignore */ }
+        fs.unlink(diskPath(row.storagePath), () => {});
         pool.query('DELETE FROM "File" WHERE id = $1', [row.id]).catch(() => {});
+      }
+      // Órfãos: registro existe, mas o arquivo físico não está mais no disco
+      const all = await pool.query('SELECT id, "storagePath" FROM "File"');
+      for (const row of all.rows) {
+        if (!fs.existsSync(diskPath(row.storagePath))) {
+          pool.query('DELETE FROM "File" WHERE id = $1', [row.id]).catch(() => {});
+          res.rows.push(row);
+        }
       }
       if (res.rows.length > 0) console.log(`Limpeza de arquivos: ${res.rows.length} removidos`);
     } catch (e) {

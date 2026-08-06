@@ -34,7 +34,8 @@ function MediaPreview({ msg }) {
   const url = msg.attach?.url || (msg.attachmentId ? `/files/${msg.attachmentId}` : null);
   const viewOnce = msg.attach?.viewOnce || msg.attachViewOnce;
   const name = msg.attach?.filename || msg.attachFilename;
-  if (!url) return null;
+  // Arquivo não existe mais (registro órfão): não renderiza nada
+  if (!url || (!mime && !name)) return null;
 
   let preview = null;
   if (mime && mime.startsWith('image/')) {
