@@ -6,6 +6,7 @@ import {
   Video, Phone, UserPlus, Send, Heart, Smile, Shield, Flag, X, 
   MessageSquare, LogOut, MapPin, User, Users, Check, Trash, ShieldAlert,
   Moon, CheckSquare, Settings, AlertCircle, VolumeX, Mic, MicOff, VideoOff, Play,
+  Pause,
   Plus, CheckCircle, Clock, Info, ChevronLeft, SkipForward, CheckCheck, FileText, Paperclip, Eye,
   BarChart3
 } from 'lucide-react';
@@ -35,12 +36,38 @@ function MediaPreview({ msg }) {
   const viewOnce = msg.attach?.viewOnce || msg.attachViewOnce;
   const name = msg.attach?.filename || msg.attachFilename;
   const [opened, setOpened] = useState(false);
+  const [remaining, setRemaining] = useState(null);
+  const audioRef = useRef(null);
+  const [playing, setPlaying] = useState(false);
+  const [curTime, setCurTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   // Arquivo não existe mais (registro órfão): não renderiza nada
   if (!url || (!mime && !name)) return null;
 
   const isImage = mime && mime.startsWith('image/');
   const isVideo = mime && mime.startsWith('video/');
   const isAudio = mime && mime.startsWith('audio/');
+
+  // Countdown: quanto falta para a visualização única sumir (15s após abrir)
+  useEffect(() => {
+    if (!viewOnce || !opened) return;
+    setRemaining(15);
+    const t = setInterval(() => setRemaining(prev => (prev === null ? prev : Math.max(0, prev - 1))), 1000);
+    return () => clearInterval(t);
+  }, [viewOnce, opened]);
+
+  const toggleAudio = () => {
+    const el = audioRef.current;
+    if (!el) return;
+    if (el.paused) el.play().catch(() => {}); else el.pause();
+  };
+
+  const fmtTime = (s) => {
+    if (!isFinite(s) || s < 0) s = 0;
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${String(sec).padStart(2, '0')}`;
+  };
 
   // Visualização única ainda não aberta: card clicável, sem nome de arquivo
   if (viewOnce && !opened) {
@@ -80,14 +107,47 @@ function MediaPreview({ msg }) {
   } else if (isVideo) {
     preview = <video src={url} controls autoPlay={viewOnce} playsInline controlsList={viewOnce ? 'nodownload' : undefined} disablePictureInPicture={viewOnce} {...protect} style={{ maxWidth: '100%', maxHeight: '260px', borderRadius: '10px', display: 'block' }} />;
   } else if (isAudio) {
-    preview = (
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 2px' }}>
-        <div style={{ width: '34px', height: '34px', borderRadius: '50%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <Mic size={16} color="#111" />
+    if (viewOnce) {
+      // Áudio de visualização única: somente escutar (sem download, sem seek, sem controls)
+      preview = (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 2px', ...protect }} onContextMenu={(e) => e.preventDefault()}>
+          <button
+            onClick={toggleAudio}
+            title={playing ? 'Pausar' : 'Ouvir'}
+            style={{ width: '34px', height: '34px', borderRadius: '50%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', cursor: 'pointer', flexShrink: 0 }}
+          >
+            {playing ? <Pause size={16} color="#111" /> : <Play size={16} color="#111" />}
+          </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
+            <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text)' }}>Áudio</span>
+            <span style={{ fontSize: '11px', color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>
+              {fmtTime(curTime)} / {fmtTime(duration)}
+            </span>
+          </div>
+          <audio
+            ref={audioRef}
+            src={url}
+            preload="metadata"
+            onPlay={() => setPlaying(true)}
+            onPause={() => setPlaying(false)}
+            onEnded={() => setPlaying(false)}
+            onTimeUpdate={(e) => setCurTime(e.currentTarget.currentTime)}
+            onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+            onSeeked={(e) => e.currentTarget.currentTime = curTime}
+            style={{ display: 'none' }}
+          />
         </div>
-        <audio src={url} controls autoPlay={viewOnce} controlsList={viewOnce ? 'nodownload' : undefined} {...protect} style={{ width: '200px', maxWidth: '100%', height: '34px' }} />
-      </div>
-    );
+      );
+    } else {
+      preview = (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 2px' }}>
+          <div style={{ width: '34px', height: '34px', borderRadius: '50%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Mic size={16} color="#111" />
+          </div>
+          <audio src={url} controls autoPlay={viewOnce} controlsList="nodownload" style={{ width: '200px', maxWidth: '100%', height: '34px' }} />
+        </div>
+      );
+    }
   } else {
     preview = (
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', color: 'var(--text)' }}>
@@ -103,7 +163,7 @@ function MediaPreview({ msg }) {
       {preview}
       {viewOnce && (
         <span style={{ position: 'absolute', top: '6px', right: '6px', background: 'rgba(0,0,0,0.75)', color: 'var(--gold)', fontSize: '9px', fontWeight: '700', padding: '3px 8px', borderRadius: '10px', letterSpacing: '0.5px' }}>
-          VISUALIZAÇÃO ÚNICA
+          {opened ? `SOME EM ${remaining ?? 15}s` : 'VISUALIZAÇÃO ÚNICA'}
         </span>
       )}
     </div>
