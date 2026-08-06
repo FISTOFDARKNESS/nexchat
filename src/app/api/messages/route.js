@@ -61,13 +61,14 @@ export async function POST(req) {
     const userId = auth.id;
 
     const body = await req.json();
-    const { action, receiverId, content, parentMessageId, messageId, attachmentId } = body;
+    const { action, receiverId, content, parentMessageId, messageId, attachmentId, type } = body;
 
     // 1. SALVAR NOVA MENSAGEM (SEND)
     if (action === 'send') {
       if (!receiverId || (!content && !attachmentId)) {
         return NextResponse.json({ error: 'receiverId e content/attachment são obrigatórios' }, { status: 400 });
       }
+      const msgType = type === 'voice' ? 'voice' : 'text';
       // Bloqueado (qualquer direção) não pode enviar mensagens
       const blocked = await sql(
         `SELECT 1 FROM "Block"
@@ -96,10 +97,10 @@ export async function POST(req) {
 
       // Insere no banco
       const result = await sql(
-        `INSERT INTO "DirectMessage" ("senderId", "receiverId", content, "parentMessageId", "attachmentId")
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO "DirectMessage" ("senderId", "receiverId", content, type, "parentMessageId", "attachmentId")
+         VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING *`,
-        [userId, receiverId, cleanContent, parentMessageId || null, attachId]
+        [userId, receiverId, cleanContent, msgType, parentMessageId || null, attachId]
       );
 
       const msg = result[0];

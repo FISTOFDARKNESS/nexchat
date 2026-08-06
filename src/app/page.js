@@ -42,7 +42,14 @@ function MediaPreview({ msg }) {
   } else if (mime && mime.startsWith('video/')) {
     preview = <video src={url} controls style={{ maxWidth: '100%', maxHeight: '260px', borderRadius: '10px', display: 'block' }} />;
   } else if (mime && mime.startsWith('audio/')) {
-    preview = <audio src={url} controls style={{ width: '220px', maxWidth: '100%' }} />;
+    preview = (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 2px' }}>
+        <div style={{ width: '34px', height: '34px', borderRadius: '50%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Mic size={16} color="#111" />
+        </div>
+        <audio src={url} controls style={{ width: '200px', maxWidth: '100%', height: '34px' }} />
+      </div>
+    );
   } else {
     preview = (
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', color: 'var(--text)' }}>
@@ -595,6 +602,30 @@ export default function Home() {
       emitTyping(false);
     }
   };
+
+  const loadReactions = useCallback(async (messageIds) => {
+    if (!messageIds || messageIds.length === 0) return;
+    try {
+      const res = await authedFetch(`/api/reactions?messageId=${messageIds[0]}`);
+      // For now, load one by one (can be optimized with batch endpoint)
+      const results = {};
+      for (const mid of messageIds) {
+        const r = await authedFetch(`/api/reactions?messageId=${mid}`);
+        const d = await r.json();
+        if (d.success) {
+          const grouped = {};
+          d.reactions.forEach(r => {
+            if (!grouped[r.emoji]) grouped[r.emoji] = [];
+            grouped[r.emoji].push(r);
+          });
+          results[mid] = grouped;
+        }
+      }
+      setReactions(prev => ({ ...prev, ...results }));
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
 
   // Carregar mensagens históricas com o amigo selecionado
   useEffect(() => {
@@ -1593,7 +1624,7 @@ export default function Home() {
         const res = await authedFetch('/api/messages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'send', receiverId: selectedFriend.friendId, content: '', attachmentId: upData.file.id })
+          body: JSON.stringify({ action: 'send', receiverId: selectedFriend.friendId, content: '', attachmentId: upData.file.id, type: 'voice' })
         });
         const data = await res.json();
         if (data.success) {
@@ -1663,30 +1694,6 @@ export default function Home() {
       }
     }
   };
-
-  const loadReactions = useCallback(async (messageIds) => {
-    if (!messageIds || messageIds.length === 0) return;
-    try {
-      const res = await authedFetch(`/api/reactions?messageId=${messageIds[0]}`);
-      // For now, load one by one (can be optimized with batch endpoint)
-      const results = {};
-      for (const mid of messageIds) {
-        const r = await authedFetch(`/api/reactions?messageId=${mid}`);
-        const d = await r.json();
-        if (d.success) {
-          const grouped = {};
-          d.reactions.forEach(r => {
-            if (!grouped[r.emoji]) grouped[r.emoji] = [];
-            grouped[r.emoji].push(r);
-          });
-          results[mid] = grouped;
-        }
-      }
-      setReactions(prev => ({ ...prev, ...results }));
-    } catch (err) {
-      console.error(err);
-    }
-  }, []);
 
   const toggleReaction = async (messageId, emoji) => {
     if (!user) return;
@@ -2953,7 +2960,7 @@ export default function Home() {
             )}
             {searchResults.length > 0 && (
               <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--gold)', background: 'var(--bg-3)', flexShrink: 0 }}>
-                <span style={{ fontSize: '11px', color: 'var(--gold)' }}>{searchResults.length} resultado(s) para "{chatSearch}"</span>
+                <span style={{ fontSize: '11px', color: 'var(--gold)' }}>{searchResults.length} resultado(s) para &ldquo;{chatSearch}&rdquo;</span>
               </div>
             )}
             <div style={{ flex: 1, overflowY: 'auto', padding: '16px 12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
