@@ -352,6 +352,15 @@ export default function Home() {
   const [invisibleMode, setInvisibleMode] = useState(false);
   const [buying, setBuying] = useState(false);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('premium') === 'success') {
+      setShowPremiumScreen(true);
+      window.history.replaceState({}, document.title, window.location.pathname);
+      loadPremiumStatus();
+    }
+  }, []);
+
   // --- Denúncia ---
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportReason, setReportReason] = useState('Comportamento impróprio');

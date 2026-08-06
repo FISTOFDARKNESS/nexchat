@@ -47,7 +47,7 @@ export async function GET(req) {
       }
     }
 
-    return NextResponse.redirect(new URL('/premium?success=1', getHost(req)));
+    return NextResponse.redirect(new URL('/?premium=success', getHost(req)));
   } catch (error) {
     console.error('Erro na API de Premium capture:', error);
     return NextResponse.redirect(new URL('/premium?error=capture_failed', getHost(req)));

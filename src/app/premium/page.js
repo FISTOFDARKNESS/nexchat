@@ -14,15 +14,36 @@ export default function PremiumPage() {
       window.location.href = '/';
       return;
     }
-    fetch('/api/premium/status', {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-      .then(res => res.json())
-      .then(data => {
+    const loadStatus = async () => {
+      try {
+        const res = await fetch('/api/premium/status', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
         if (data.success) setStatus(data);
+      } catch (e) {
+        console.error(e);
+      } finally {
         setLoading(false);
+      }
+    };
+    loadStatus();
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('success') === '1') {
+      setLoading(true);
+      fetch('/api/premium/status', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('nexchat_token')}` }
       })
-      .catch(() => setLoading(false));
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) setStatus(data);
+          setLoading(false);
+        })
+        .catch(() => setLoading(false));
+    }
   }, []);
 
   const handleBuy = async () => {
@@ -114,6 +135,10 @@ export default function PremiumPage() {
         <p style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '12px' }}>
           Pagamento seguro via PayPal. Cancele quando quiser.
         </p>
+
+        <button onClick={() => { window.location.href = '/'; }} className="btn-secondary" style={{ minHeight: '40px', marginTop: '8px' }}>
+          Voltar para o chat
+        </button>
       </div>
     </div>
   );
