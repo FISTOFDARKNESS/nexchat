@@ -48,7 +48,8 @@ CREATE TABLE "File" (
   "viewOnce" BOOLEAN NOT NULL DEFAULT false,
   "viewedAt" TIMESTAMPTZ,
   "expiresAt" TIMESTAMPTZ,
-  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+  "storageKey" TEXT
 );
 
 CREATE TABLE "DirectMessage" (
