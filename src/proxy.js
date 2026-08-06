@@ -17,7 +17,7 @@ function cleanup() {
   }
 }
 
-export function middleware(req) {
+export async function proxy(req) {
   const url = new URL(req.url);
   const pathname = url.pathname;
 

@@ -4,7 +4,6 @@ export const metadata = {
   title: "NexChat - Amigos, Matchmaking e Videochamadas",
   description: "Conecte-se com amigos e faça chamadas de vídeo aleatórias instantaneamente.",
   manifest: "/manifest.json",
-  themeColor: "#EAC847",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
@@ -17,6 +16,7 @@ export const viewport = {
   initialScale: 1,
   maximumScale: 1,
   viewportFit: "cover",
+  themeColor: "#EAC847",
 };
 
 export default function RootLayout({ children }) {

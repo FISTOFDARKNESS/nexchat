@@ -303,8 +303,12 @@ export default function Home() {
 
   // --- Badge na aba + som de mensagem ---
   const [unreadBadge, setUnreadBadge] = useState(0);
-  const originalTitleRef = useRef(document.title);
+  const originalTitleRef = useRef(null);
   const audioCtxRef = useRef(null);
+
+  useEffect(() => {
+    originalTitleRef.current = document.title;
+  }, []);
 
   const playNotificationSound = useCallback(() => {
     try {
