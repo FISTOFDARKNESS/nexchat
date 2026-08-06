@@ -80,7 +80,7 @@ export async function GET(req, ctx) {
     try {
       data = file.storageKey
         ? await storageFetch(file.storageKey)
-        : await readFile(path.join(process.cwd(), file.storagePath));
+        : await readFile(path.join(process.cwd(), /*turbopackIgnore: true*/ file.storagePath));
     } catch {
       await sql('DELETE FROM "File" WHERE id = $1', [id]);
       return NextResponse.json({ error: 'Arquivo não encontrado' }, { status: 404 });
@@ -137,7 +137,7 @@ async function cleanup(file) {
     await storageDelete(file.storageKey).catch(() => {});
   } else {
     try {
-      await unlink(path.join(process.cwd(), file.storagePath));
+      await unlink(path.join(process.cwd(), /*turbopackIgnore: true*/ file.storagePath));
     } catch { /* arquivo já não existe */ }
   }
   await sql('DELETE FROM "File" WHERE id = $1', [file.id]);

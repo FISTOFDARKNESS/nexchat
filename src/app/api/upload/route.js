@@ -102,9 +102,9 @@ export async function POST(req) {
 
     // 2) Fallback: disco local
     if (!storageKey) {
-      const dir = path.join(process.cwd(), dirName);
+      const dir = path.join(process.cwd(), /*turbopackIgnore: true*/ dirName);
       await mkdir(dir, { recursive: true });
-      await writeFile(path.join(process.cwd(), storagePath), bytes);
+      await writeFile(path.join(process.cwd(), /*turbopackIgnore: true*/ storagePath), bytes);
     }
 
     // View-once: expira após 24h (ou ao ser visualizado)

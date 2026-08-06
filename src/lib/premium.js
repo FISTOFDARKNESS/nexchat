@@ -1,5 +1,9 @@
 import { sql } from '@/lib/db';
 
+export const PREMIUM_PRICE = '34.99';
+export const PREMIUM_CURRENCY = 'BRL';
+export const PREMIUM_DAYS = 30;
+
 export async function grantPremium(userId, days = 30) {
   const now = new Date();
   const expires = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
