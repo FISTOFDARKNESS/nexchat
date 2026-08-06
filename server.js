@@ -123,6 +123,8 @@ app.prepare().then(() => {
       methods: ["GET", "POST"]
     }
   });
+  // Expõe o Socket.IO para as rotas Next.js (ex.: notificar view-once)
+  globalThis.__nexchatIo = io;
 
   // Fila de Matchmaking em memória
   // Cada item: { socketId, userId, username, gender, country, prefGender, prefCountry, mode }

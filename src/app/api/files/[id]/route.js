@@ -59,6 +59,21 @@ export async function GET(req, ctx) {
     if (file.viewOnce && !file.viewedAt && !isOwner) {
       await sql(`UPDATE "File" SET "viewedAt" = now() WHERE id = $1`, [id]);
       markViewed = true;
+      // Avisa o DM inteiro (remetente e destinatário) para remover a mensagem da conversa
+      const dm = await sql(
+        `SELECT id, "senderId", "receiverId" FROM "DirectMessage" WHERE "attachmentId" = $1 LIMIT 1`,
+        [id]
+      );
+      if (dm.length > 0 && globalThis.__nexchatIo) {
+        const sorted = [dm[0].senderId, dm[0].receiverId].sort();
+        globalThis.__nexchatIo
+          .to(`friend_chat_${sorted[0]}_${sorted[1]}`)
+          .emit('view_once_viewed', { messageId: dm[0].id, fileId: id });
+      }
+      // Some de vez: remove a mensagem da conversa (todos os dispositivos e recargas)
+      if (dm.length > 0) {
+        await sql('DELETE FROM "DirectMessage" WHERE id = $1', [dm[0].id]);
+      }
     }
 
     let data;
