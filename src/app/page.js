@@ -29,6 +29,10 @@ function formatFileSize(bytes) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function getTs() {
+  return Date.now();
+}
+
 // Preview de mídia dentro da mensagem
 function MediaPreview({ msg }) {
   const mime = msg.attach?.mime || msg.attachMime;
@@ -224,7 +228,7 @@ export default function Home() {
   const [toasts, setToasts] = useState([]);
   
   const addToast = useCallback((message, type = 'info') => {
-    const id = Date.now() + Math.random().toString(36).substr(2, 5);
+    const id = getTs() + Math.random().toString(36).substr(2, 5);
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
@@ -604,9 +608,9 @@ export default function Home() {
   // --- Cronômetro da chamada ativa ---
   useEffect(() => {
     if (callState !== 'connected') return;
-    callStartedAtRef.current = Date.now();
+    callStartedAtRef.current = getTs();
     const iv = setInterval(() => {
-      setCallElapsed(Math.floor((Date.now() - callStartedAtRef.current) / 1000));
+      setCallElapsed(Math.floor((getTs() - callStartedAtRef.current) / 1000));
     }, 1000);
     return () => clearInterval(iv);
   }, [callState]);
@@ -668,6 +672,7 @@ export default function Home() {
     setProfileUser(null);
     setProfileError('');
     if (f) {
+      handleEndCallIfActive();
       stopTyping();
       setTypingStatus({ friendId: null, isTyping: false });
       setSelectedFriend(f);
@@ -1380,6 +1385,7 @@ export default function Home() {
   // --- Ações de Matchmaking ---
   const startRandomMatch = () => {
     if (!user) return;
+    handleEndCallIfActive();
     setSelectedFriend(null);
     setInQueue(true);
     setQueueStatusText('Entrando na fila de pareamento...');
@@ -1427,7 +1433,7 @@ export default function Home() {
     const content = messageText.trim();
     setMessageText('');
 
-    const tempMsgId = `temp_${Date.now()}`;
+    const tempMsgId = `temp_${getTs()}`;
     const payload = {
       id: tempMsgId,
       content,
@@ -1723,7 +1729,7 @@ export default function Home() {
           : '';
       const mediaRecorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
       voiceChunksRef.current = [];
-      voiceStartTimeRef.current = Date.now();
+      voiceStartTimeRef.current = getTs();
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) voiceChunksRef.current.push(e.data);
       };
@@ -1735,7 +1741,7 @@ export default function Home() {
       setIsRecordingVoice(true);
       setVoiceDuration(0);
       voiceTimerRef.current = setInterval(() => {
-        setVoiceDuration(Math.floor((Date.now() - voiceStartTimeRef.current) / 1000));
+        setVoiceDuration(Math.floor((getTs() - voiceStartTimeRef.current) / 1000));
       }, 1000);
     } catch (err) {
       console.error(err);
@@ -1755,7 +1761,7 @@ export default function Home() {
         const mime = recorder.mimeType && recorder.mimeType.includes('/') ? recorder.mimeType.split(';')[0] : 'audio/webm';
         const blob = new Blob(finalChunks, { type: mime });
         // Gravação praticamente vazia: descarta
-        if (blob.size < 1000 || Math.floor((Date.now() - voiceStartTimeRef.current) / 1000) < 1) {
+        if (blob.size < 1000 || Math.floor((getTs() - voiceStartTimeRef.current) / 1000) < 1) {
           resolve(null);
           addToast('Gravação muito curta. Fale por pelo menos 1 segundo.', 'warning');
           return;
@@ -1788,7 +1794,7 @@ export default function Home() {
     try {
       const fd = new FormData();
       const ext = blob.type.includes('mp4') ? 'm4a' : 'webm';
-      const file = new File([blob], `voice_${Date.now()}.${ext}`, { type: blob.type });
+      const file = new File([blob], `voice_${getTs()}.${ext}`, { type: blob.type });
       fd.append('file', file);
       fd.append('purpose', 'voice');
       const up = await authedFetch('/api/upload', { method: 'POST', body: fd });
@@ -2043,7 +2049,7 @@ export default function Home() {
   const callFriend = async (type) => {
     if (!selectedFriendRef.current || !user) return;
     
-    const callRoomId = `call_${Date.now()}_${user.id}`;
+    const callRoomId = `call_${getTs()}_${user.id}`;
     setCallState('calling');
     setCallType(type);
     setActiveCallRoom(callRoomId);
@@ -2109,20 +2115,28 @@ export default function Home() {
     addToast('Chamada recusada.', 'info');
   };
 
-  const endCall = () => {
+  const handleEndCall = useCallback(() => {
     const roomId = activeCallRoom;
     const t = callType;
-    const duration = callStartedAtRef.current ? Math.max(0, Math.floor((Date.now() - callStartedAtRef.current) / 1000)) : 0;
+    const duration = callStartedAtRef.current ? Math.max(0, Math.floor((getTs() - callStartedAtRef.current) / 1000)) : 0;
     if (roomId) {
       socket.emit('end_friend_call', { callRoomId: roomId });
     }
     cleanupCall();
     addToast('Chamada encerrada.', 'info');
     logCall(t, duration);
-  };
+  }, [activeCallRoom, callType, cleanupCall, addToast, logCall]);
+
+  // Se estiver em uma chamada (vídeo ou áudio), encerra antes de trocar de tela
+  const handleEndCallIfActive = useCallback(() => {
+    if (callStateRef.current === 'calling' || callStateRef.current === 'connected') {
+      handleEndCall();
+    }
+  }, [handleEndCall]);
 
   // --- Grupos ---
   const selectGroup = async (groupId) => {
+    handleEndCallIfActive();
     setSelectedFriend(null);
     setMessages([]);
     setActiveView('chat');
@@ -2621,6 +2635,7 @@ export default function Home() {
           <button 
             className="btn-primary" 
             onClick={() => {
+              handleEndCallIfActive();
               setSelectedFriend(null);
               setShowAdminPanel(false);
               if (isMobile) setActiveView('chat');
@@ -2686,6 +2701,7 @@ export default function Home() {
               <div 
                 key={f.friendId}
                 onClick={() => {
+                  handleEndCallIfActive();
                   stopTyping();
                   setTypingStatus({ friendId: null, isTyping: false });
                   setSelectedFriend(f);
@@ -2918,6 +2934,7 @@ export default function Home() {
                 {isMobile && (
                   <button 
                     onClick={() => {
+                      handleEndCallIfActive();
                       if (inRandomChat) {
                         if (confirm('Deseja sair do chat aleatório?')) {
                           skipRandomMatch();
@@ -3038,7 +3055,7 @@ export default function Home() {
                 <button onClick={toggleAudio} title="Mudo" style={{ padding: '8px', borderRadius: '50%', background: 'var(--bg-3)', color: '#fff', border: '1px solid var(--line)', minHeight: isMobile ? '32px' : '36px' }}>
                   {audioEnabled ? <Mic size={12} /> : <MicOff size={12} />}
                 </button>
-                <button onClick={endCall} style={{ padding: '6px 12px', borderRadius: '4px', background: 'var(--red)', color: '#fff', fontSize: '11px', border: 'none', minHeight: isMobile ? '32px' : '36px' }}>
+                <button onClick={handleEndCall} style={{ padding: '6px 12px', borderRadius: '4px', background: 'var(--red)', color: '#fff', fontSize: '11px', border: 'none', minHeight: isMobile ? '32px' : '36px' }}>
                   Encerrar
                 </button>
               </div>
@@ -3122,7 +3139,7 @@ export default function Home() {
                     </button>
                   )}
                   {callState === 'connected' && !inRandomChat && (
-                    <button onClick={endCall} style={{ padding: '6px 10px', borderRadius: '4px', background: 'var(--red)', color: '#fff', fontSize: '11px', border: 'none' }}>
+                    <button onClick={handleEndCall} style={{ padding: '6px 10px', borderRadius: '4px', background: 'var(--red)', color: '#fff', fontSize: '11px', border: 'none' }}>
                       Sair
                     </button>
                   )}
