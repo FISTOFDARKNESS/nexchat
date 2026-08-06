@@ -200,7 +200,7 @@ app.prepare().then(() => {
     });
 
     // 1. FILA DE MATCHMAKING (OMEGLE)
-    socket.on('join_queue', (userData) => {
+    socket.on('join_queue', async (userData) => {
       // userData: { userId, username, gender, country, prefGender, prefCountry, mode }
       // mode: 'text' ou 'video'
       
