@@ -727,11 +727,12 @@ app.prepare().then(() => {
       for (const row of res.rows) {
         if (row.storageKey) {
           // Remove do bucket "marketplace" (Supabase Storage)
+          const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
           fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/marketplace/${row.storageKey}`, {
             method: 'DELETE',
             headers: {
-              'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}`,
-              'apikey': process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+              'Authorization': `Bearer ${key}`,
+              'apikey': key
             }
           }).catch(() => {});
         } else {
