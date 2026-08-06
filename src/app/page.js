@@ -350,6 +350,7 @@ export default function Home() {
   const [showPremiumScreen, setShowPremiumScreen] = useState(false);
   const [chatTheme, setChatTheme] = useState('default');
   const [invisibleMode, setInvisibleMode] = useState(false);
+  const [buying, setBuying] = useState(false);
 
   // --- Denúncia ---
   const [showReportModal, setShowReportModal] = useState(false);
