@@ -127,7 +127,7 @@ export async function POST(req) {
           ...msg,
           parentContent,
           likedBy: [],
-          attach: attach ? { ...attach, url: `/files/${attach.id}` } : null
+          attach: attach ? { ...attach, url: `/api/files/${attach.id}` } : null
         }
       });
     }

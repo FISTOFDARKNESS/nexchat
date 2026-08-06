@@ -54,7 +54,7 @@ export async function GET(req, ctx) {
     if (!allowed) {
       // Avatar de outro usuário: libera para quem tem amizade (qualquer status) e não está bloqueado
       const av = await sql(
-        `SELECT 1 FROM "User" WHERE "avatarUrl" = '/files/' || $1 AND id = $2 LIMIT 1`,
+        `SELECT 1 FROM "User" WHERE ("avatarUrl" = '/files/' || $1 OR "avatarUrl" = '/api/files/' || $1) AND id = $2 LIMIT 1`,
         [id, file.ownerId]
       );
       if (av.length > 0) {

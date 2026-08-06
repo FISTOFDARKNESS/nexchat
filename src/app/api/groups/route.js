@@ -242,7 +242,7 @@ export async function POST(req) {
         message: {
           ...msg,
           senderName: sender[0]?.username || 'Usuário',
-          attach: attach ? { ...attach, url: `/files/${attach.id}` } : null
+          attach: attach ? { ...attach, url: `/api/files/${attach.id}` } : null
         }
       });
     }

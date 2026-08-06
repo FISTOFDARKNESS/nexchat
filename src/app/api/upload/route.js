@@ -100,7 +100,7 @@ export async function POST(req) {
     const row = result[0];
     return NextResponse.json({
       success: true,
-      file: { id: row.id, url: `/files/${row.id}`, mime, size: bytes.length, viewOnce }
+      file: { id: row.id, url: `/api/files/${row.id}`, mime, size: bytes.length, viewOnce }
     });
   } catch (error) {
     console.error('Erro na API de Upload:', error);

@@ -31,7 +31,7 @@ function formatFileSize(bytes) {
 // Preview de mídia dentro da mensagem
 function MediaPreview({ msg }) {
   const mime = msg.attach?.mime || msg.attachMime;
-  const url = msg.attach?.url || (msg.attachmentId ? `/files/${msg.attachmentId}` : null);
+  const url = msg.attach?.url || (msg.attachmentId ? `/api/files/${msg.attachmentId}` : null);
   const viewOnce = msg.attach?.viewOnce || msg.attachViewOnce;
   const name = msg.attach?.filename || msg.attachFilename;
   const [opened, setOpened] = useState(false);
