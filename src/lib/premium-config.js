@@ -1,5 +1,5 @@
-export const PREMIUM_PRICE = process.env.PREMIUM_PRICE || '34.99';
-export const PREMIUM_CURRENCY = process.env.PREMIUM_CURRENCY || 'BRL';
+export const PREMIUM_PRICE = process.env.NEXT_PUBLIC_PREMIUM_PRICE || process.env.PREMIUM_PRICE || '34.99';
+export const PREMIUM_CURRENCY = process.env.NEXT_PUBLIC_PREMIUM_CURRENCY || process.env.PREMIUM_CURRENCY || 'BRL';
 export const PREMIUM_DAYS = 30;
 
 export function formatPremiumPrice() {
