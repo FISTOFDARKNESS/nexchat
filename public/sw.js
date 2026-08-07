@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nexchat-v2';
+const CACHE_NAME = 'nexchat-v3';
 const ASSETS = [
   '/',
   '/manifest.json',
@@ -23,6 +23,20 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   if (event.request.url.includes('/api/')) return;
+
+  // Chunks estáticos do Next.js (nome contém hash de conteúdo): sempre rede primeiro.
+  // Cache só como fallback offline — evita servir bundle desatualizado.
+  if (event.request.url.includes('/_next/static/')) {
+    event.respondWith(
+      fetch(event.request).then((response) => {
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        return response;
+      }).catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request).then((cached) => {
       const fetchPromise = fetch(event.request).then((response) => {
