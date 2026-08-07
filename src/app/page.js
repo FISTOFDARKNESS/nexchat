@@ -268,7 +268,13 @@ function authedFetch(url, options = {}) {
 
 export default function Home() {
   // --- Estados do Sistema ---
-  const [consentGranted, setConsentGranted] = useState(false);
+  const [consentGranted, setConsentGranted] = useState(() => {
+    try {
+      return document.cookie.split(';').some(c => c.trim().startsWith('nexchat_consent=accepted'));
+    } catch {
+      return false;
+    }
+  });
   const [useMedia, setUseMedia] = useState(false);
   const [user, setUser] = useState(null); // Usuário logado
   const [loading, setLoading] = useState(false);
@@ -421,15 +427,19 @@ export default function Home() {
   // --- Cookie Consent ---
   const [cookieConsent, setCookieConsent] = useState(() => {
     try {
-      return localStorage.getItem('nexchat_cookie_consent') === 'accepted';
+      return document.cookie.split(';').some(c => c.trim().startsWith('nexchat_cookie_consent=accepted'));
     } catch {
       return false;
     }
   });
 
   const acceptCookies = () => {
-    localStorage.setItem('nexchat_cookie_consent', 'accepted');
     setCookieConsent(true);
+    try {
+      document.cookie = 'nexchat_cookie_consent=accepted; path=/; SameSite=Lax';
+    } catch (e) {
+      console.warn('Erro ao salvar consentimento:', e);
+    }
   };
 
   // --- Push Notifications ---
@@ -518,7 +528,7 @@ export default function Home() {
     try {
       const existing = document.cookie.split(';').find(c => c.trim().startsWith('nexchat_cookie_consent='));
       if (!existing) {
-        document.cookie = 'nexchat_cookie_consent=accepted; path=/; max-age=' + (60 * 60 * 24 * 365);
+        document.cookie = 'nexchat_cookie_consent=accepted; path=/; SameSite=Lax';
       }
     } catch (e) {
       console.error('Erro ao setar cookie:', e);
@@ -1011,6 +1021,12 @@ export default function Home() {
       setUseMedia(false);
     }
     setConsentGranted(true);
+    setCookieConsent(true);
+    try {
+      document.cookie = 'nexchat_consent=accepted; path=/; SameSite=Lax';
+    } catch (e) {
+      console.warn('Não foi possível salvar consentimento da sessão:', e);
+    }
   };
 
   // Garante que o stream local exista antes de criar o PeerConnection
