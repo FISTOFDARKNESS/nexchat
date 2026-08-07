@@ -90,7 +90,7 @@ function getCookie(req, name) {
 
 // Verifica se há bloqueio em qualquer direção entre dois usuários
 function isBlocked(userIdA, userIdB) {
-  const pool = getDbPool();
+  const pool = getPool();
   if (!pool || !userIdA || !userIdB) return Promise.resolve(false);
   return pool.query(
     `SELECT 1 FROM "Block" WHERE ("blockerId" = $1 AND "blockedId" = $2) OR ("blockerId" = $2 AND "blockedId" = $1) LIMIT 1`,
@@ -118,7 +118,7 @@ function getWebPush() {
 
 async function sendPushNotificationToUser(userId, payload) {
   const wp = getWebPush();
-  const pool = getDbPool();
+  const pool = getPool();
   if (!wp || !pool) return;
 
   try {
