@@ -3468,8 +3468,9 @@ export default function Home() {
         ))}
       </div>
 
-      {/* 1. SIDEBAR (Estilo Discord) - Ocultada no mobile se estiver no chat */}
+      {/* 1. SIDEBAR (Estilo Discord) */}
       <aside 
+        className={`sidebar ${isMobile && activeView !== 'sidebar' ? 'hidden-mobile' : ''} animate-slide-in-left`}
         style={{ 
           width: isMobile ? '100%' : '300px', 
           display: isMobile && activeView !== 'sidebar' ? 'none' : 'flex',
@@ -4257,18 +4258,11 @@ export default function Home() {
               </div>
             )}
 
-            {/* Video Box (WebRTC P2P/mesh com layout responsivo mobile corrigido) */}
+            {/* Video Box (WebRTC P2P/mesh com aspect ratio responsivo e camera completa) */}
             {((inRandomChat && matchMode === 'video') || (callState === 'connected' && callType === 'video')) && (
               <div 
-                style={{ 
-                  height: isMobile ? '180px' : '280px', 
-                  background: '#000', 
-                  display: 'flex', 
-                  flexWrap: 'wrap',
-                  position: 'relative', 
-                  borderBottom: '1px solid var(--line)',
-                  flexShrink: 0
-                }}
+                className="video-container"
+                data-participants={Object.keys(remoteStreams).length}
               >
                 {/* Remotos (um por participante; em chamada em grupo vira grade) */}
                 {Object.entries(remoteStreams).map(([peerId], idx) => {
@@ -4279,64 +4273,65 @@ export default function Home() {
                       ref={el => { remoteVideoElsRef.current[peerId] = el; }}
                       autoPlay
                       playsInline
+                      className="video-remote"
                       style={{
                         width: count === 1 ? '100%' : count === 2 ? '50%' : '33.33%',
-                        height: '100%',
-                        objectFit: 'cover',
-                        background: '#000',
                         borderRight: idx < count - 1 ? '1px solid var(--line)' : 'none'
                       }}
                     />
                   );
                 })}
                 
-                {/* Local Flutuante */}
+                {/* Local Flutuante (Camera PIP) */}
                 {useMedia && (
-                  <div 
-                    style={{ 
-                      position: 'absolute', 
-                      bottom: '10px', 
-                      right: '10px', 
-                      width: isMobile ? '70px' : '110px', 
-                      height: isMobile ? '95px' : '145px', 
-                      borderRadius: '8px', 
-                      overflow: 'hidden', 
-                      border: '2px solid var(--gold)', 
-                      boxShadow: '0 4px 15px rgba(0,0,0,0.6)',
-                      zIndex: 5
-                    }}
-                  >
+                  <div className="video-local-pip">
                     <video 
                       ref={localVideoRef} 
                       autoPlay 
                       playsInline 
                       muted 
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
                     />
                   </div>
                 )}
                 
-                {/* Controles flutuantes */}
-                <div style={{ position: 'absolute', bottom: '10px', left: '10px', display: 'flex', gap: '6px', zIndex: 10 }}>
+                {/* Controles flutuantes da Chamada/Câmera */}
+                <div className="video-controls">
                   {callState === 'connected' && (
-                    <span style={{ padding: '6px 10px', background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: '12px', fontFamily: 'var(--font-mono)', borderRadius: '4px', border: '1px solid var(--line)' }}>
+                    <span className="video-call-timer">
                       {formatDuration(callElapsed)}
                     </span>
                   )}
-                  <button onClick={toggleAudio} style={{ padding: '8px', borderRadius: '50%', background: 'rgba(0,0,0,0.7)', color: '#fff', border: '1px solid var(--line)' }}>
-                    {audioEnabled ? <Mic size={12} /> : <MicOff size={12} />}
+                  <button 
+                    onClick={toggleAudio} 
+                    className="video-ctrl-btn"
+                    title={audioEnabled ? "Desativar microfone" : "Ativar microfone"}
+                  >
+                    {audioEnabled ? <Mic size={16} /> : <MicOff size={16} />}
                   </button>
-                  <button onClick={toggleVideo} style={{ padding: '8px', borderRadius: '50%', background: 'rgba(0,0,0,0.7)', color: '#fff', border: '1px solid var(--line)' }}>
-                    {videoEnabled ? <Video size={12} /> : <VideoOff size={12} />}
+                  <button 
+                    onClick={toggleVideo} 
+                    className="video-ctrl-btn"
+                    title={videoEnabled ? "Desativar câmera" : "Ativar câmera"}
+                  >
+                    {videoEnabled ? <Video size={16} /> : <VideoOff size={16} />}
                   </button>
                   {callState === 'connected' && selectedFriend && (
-                    <button onClick={() => setShowAddToCallModal(true)} title="Adicionar à chamada" style={{ padding: '8px', borderRadius: '50%', background: 'rgba(0,0,0,0.7)', color: 'var(--gold)', border: '1px solid var(--gold)' }}>
-                      <UserPlus size={13} />
+                    <button 
+                      onClick={() => setShowAddToCallModal(true)} 
+                      title="Adicionar à chamada" 
+                      className="video-ctrl-btn"
+                      style={{ color: 'var(--gold)', borderColor: 'var(--gold)' }}
+                    >
+                      <UserPlus size={16} />
                     </button>
                   )}
                   {callState === 'connected' && !inRandomChat && (
-                    <button onClick={handleEndCall} style={{ padding: '6px 10px', borderRadius: '4px', background: 'var(--red)', color: '#fff', fontSize: '11px', border: 'none' }}>
-                      Sair
+                    <button 
+                      onClick={handleEndCall} 
+                      className="video-ctrl-btn danger"
+                      title="Encerrar Chamada"
+                    >
+                      <Phone size={16} style={{ transform: 'rotate(135deg)' }} />
                     </button>
                   )}
                 </div>
@@ -4867,8 +4862,7 @@ export default function Home() {
             </button>
           </div>
         ) : (
-          // TELA INICIAL / BEM-VINDO - Ocultada no mobile
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px', textAlign: 'center' }} className="animate-fade-in">
+          <div className="lobby-container">
             {isMobile && (
               <button 
                 onClick={() => setActiveView('sidebar')} 
@@ -4879,26 +4873,26 @@ export default function Home() {
               </button>
             )}
 
-            <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'var(--gold-grad)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '16px', boxShadow: '0 6px 24px rgba(234,200,71,0.4)' }} className="animate-float">
-              <ShieldAlert size={28} color="#0B0B0F" />
+            <div className="lobby-icon">
+              <MessageSquare size={32} color="#0B0B0F" strokeWidth={2.2} />
             </div>
             
-            <h1 className="shimmer-text" style={{ fontSize: '24px', marginBottom: '8px' }}>NexChat</h1>
-            <p style={{ color: 'var(--muted)', maxWidth: '400px', fontSize: '13px', lineHeight: '1.5', marginBottom: '24px' }}>
-              Combine conexões instantâneas (Omegle) com chat privado (WhatsApp) e moderação robusta (Discord). Configure as opções abaixo e inicie a diversão!
+            <h1 className="shimmer-text" style={{ fontSize: '28px', fontWeight: '800', marginBottom: '8px' }}>NexChat</h1>
+            <p style={{ color: 'var(--muted)', maxWidth: '420px', fontSize: '13px', lineHeight: '1.5', marginBottom: '24px' }}>
+              Conexões instantâneas por texto e vídeo em tempo real, chat privado com amigos e moderação de alta performance.
             </p>
 
             {/* Configuração de Filtros de Pareamento */}
-            <div className="glass-card animate-slide-in" style={{ maxWidth: '440px', width: '100%', border: '1px solid var(--line)', textAlign: 'left', padding: '16px' }}>
-              <h3 style={{ color: '#fff', fontSize: '14px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Settings size={14} /> Filtros de Matchmaking
+            <div className="glass-card lobby-matchmaking-card gold-glow-card">
+              <h3 style={{ color: '#fff', fontSize: '14px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Settings size={15} style={{ color: 'var(--gold)' }} /> Filtros de Matchmaking
               </h3>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <div style={{ flex: 1 }}>
                     <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Filtro Gênero</label>
-                    <select value={matchGender} onChange={e => setMatchGender(e.target.value)} style={{ width: '100%', fontSize: '12px', minHeight: '38px', padding: '6px 10px' }}>
+                    <select value={matchGender} onChange={e => setMatchGender(e.target.value)} style={{ width: '100%', fontSize: '12px', minHeight: '40px', padding: '6px 10px' }}>
                       <option value="any">Qualquer</option>
                       <option value="male">Homens</option>
                       <option value="female">Mulheres</option>
@@ -4907,7 +4901,7 @@ export default function Home() {
                   
                   <div style={{ flex: 1 }}>
                     <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Filtro País</label>
-                    <select value={matchCountry} onChange={e => setMatchCountry(e.target.value)} style={{ width: '100%', fontSize: '12px', minHeight: '38px', padding: '6px 10px' }}>
+                    <select value={matchCountry} onChange={e => setMatchCountry(e.target.value)} style={{ width: '100%', fontSize: '12px', minHeight: '40px', padding: '6px 10px' }}>
                       <option value="any">Qualquer</option>
                       <option value="BR">Brasil</option>
                       <option value="US">EUA</option>
@@ -4917,21 +4911,21 @@ export default function Home() {
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Formato</label>
+                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Formato de Conexão</label>
                   <div style={{ display: 'flex', gap: '10px' }}>
-                    <label style={{ flex: 1, padding: '8px', background: matchMode === 'text' ? 'var(--gold-soft)' : 'var(--bg-3)', border: matchMode === 'text' ? '1px solid var(--gold)' : '1px solid var(--line)', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', cursor: 'pointer', fontSize: '12px', minHeight: '38px' }}>
+                    <label style={{ flex: 1, padding: '10px', background: matchMode === 'text' ? 'var(--gold-soft)' : 'var(--bg-3)', border: matchMode === 'text' ? '1px solid var(--gold)' : '1px solid var(--line)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', minHeight: '40px', transition: 'all 0.2s' }}>
                       <input type="radio" name="matchMode" checked={matchMode === 'text'} onChange={() => setMatchMode('text')} style={{ display: 'none' }} />
-                      <MessageSquare size={13} style={{ color: matchMode === 'text' ? 'var(--gold)' : 'var(--muted)' }} /> Texto
+                      <MessageSquare size={14} style={{ color: matchMode === 'text' ? 'var(--gold)' : 'var(--muted)' }} /> Texto
                     </label>
-                    <label style={{ flex: 1, padding: '8px', background: matchMode === 'video' ? 'var(--gold-soft)' : 'var(--bg-3)', border: matchMode === 'video' ? '1px solid var(--gold)' : '1px solid var(--line)', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', cursor: 'pointer', fontSize: '12px', minHeight: '38px' }}>
+                    <label style={{ flex: 1, padding: '10px', background: matchMode === 'video' ? 'var(--gold-soft)' : 'var(--bg-3)', border: matchMode === 'video' ? '1px solid var(--gold)' : '1px solid var(--line)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', minHeight: '40px', transition: 'all 0.2s' }}>
                       <input type="radio" name="matchMode" checked={matchMode === 'video'} onChange={() => setMatchMode('video')} style={{ display: 'none' }} />
-                      <Video size={13} style={{ color: matchMode === 'video' ? 'var(--gold)' : 'var(--muted)' }} /> Vídeo
+                      <Video size={14} style={{ color: matchMode === 'video' ? 'var(--gold)' : 'var(--muted)' }} /> Vídeo
                     </label>
                   </div>
                 </div>
 
-                <button className="btn-primary animate-pulse-glow" onClick={startRandomMatch} style={{ width: '100%', justifyContent: 'center', marginTop: '4px', minHeight: '44px' }}>
-                  Buscar Conexão <Play size={12} />
+                <button className="btn-primary animate-pulse-glow" onClick={startRandomMatch} style={{ width: '100%', justifyContent: 'center', marginTop: '6px', minHeight: '46px', fontSize: '14px' }}>
+                  Iniciar Conexão Instantânea <Play size={14} fill="#000" />
                 </button>
               </div>
             </div>
