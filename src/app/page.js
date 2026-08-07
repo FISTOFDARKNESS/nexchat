@@ -1247,12 +1247,13 @@ export default function Home() {
       const { messageId, likedByUserId } = data;
       setMessages(prev => prev.map(m => {
         if (m.id === messageId) {
-          const alreadyLiked = m.likedBy.includes(likedByUserId);
+          const current = m.likedBy || [];
+          const alreadyLiked = current.includes(likedByUserId);
           return {
             ...m,
             likedBy: alreadyLiked 
-              ? m.likedBy.filter(id => id !== likedByUserId)
-              : [...m.likedBy, likedByUserId]
+              ? current.filter(id => id !== likedByUserId)
+              : [...current, likedByUserId]
           };
         }
         return m;
@@ -1449,12 +1450,13 @@ export default function Home() {
       const { messageId, likedByUserId } = data;
       setMessages(prev => prev.map(m => {
         if (m.id === messageId) {
-          const alreadyLiked = m.likedBy.includes(likedByUserId);
+          const current = m.likedBy || [];
+          const alreadyLiked = current.includes(likedByUserId);
           return {
             ...m,
             likedBy: alreadyLiked 
-              ? m.likedBy.filter(id => id !== likedByUserId)
-              : [...m.likedBy, likedByUserId]
+              ? current.filter(id => id !== likedByUserId)
+              : [...current, likedByUserId]
           };
         }
         return m;
@@ -2179,10 +2181,11 @@ export default function Home() {
     if (inRandomChat && randomRoomId) {
       setMessages(prev => prev.map(m => {
         if (m.id === msgId) {
-          const alreadyLiked = m.likedBy.includes(user.id);
+          const current = m.likedBy || [];
+          const alreadyLiked = current.includes(user.id);
           return {
             ...m,
-            likedBy: alreadyLiked ? m.likedBy.filter(id => id !== user.id) : [...m.likedBy, user.id]
+            likedBy: alreadyLiked ? current.filter(id => id !== user.id) : [...current, user.id]
           };
         }
         return m;
@@ -2202,11 +2205,12 @@ export default function Home() {
         if (data.success) {
           setMessages(prev => prev.map(m => {
             if (m.id === msgId) {
+              const current = m.likedBy || [];
               return {
                 ...m,
                 likedBy: data.liked 
-                  ? [...m.likedBy, user.id]
-                  : m.likedBy.filter(id => id !== user.id)
+                  ? [...current, user.id]
+                  : current.filter(id => id !== user.id)
               };
             }
             return m;
@@ -4119,7 +4123,7 @@ export default function Home() {
                           </p>
                         )}
                         
-                         {msg.likedBy.length > 0 && (
+                         {(msg.likedBy || []).length > 0 && (
                            <div style={{ 
                              position: 'absolute', 
                              bottom: '-10px', 
@@ -4135,7 +4139,7 @@ export default function Home() {
                              color: 'var(--gold)'
                            }}>
                              <Heart size={8} fill="var(--gold)" />
-                             <span>{msg.likedBy.length}</span>
+                             <span>{(msg.likedBy || []).length}</span>
                            </div>
                          )}
 
