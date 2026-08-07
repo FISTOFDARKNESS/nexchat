@@ -10,6 +10,7 @@ import {
   Plus, CheckCircle, Clock, Info, ChevronLeft, SkipForward, CheckCheck, FileText, Paperclip, Eye,
   BarChart3, Megaphone, Search, History, Crown, ToggleLeft, Palette, Bell, ShieldCheck
 } from 'lucide-react';
+import { PREMIUM_PRICE, formatPremiumPrice } from '@/lib/premium';
 
 let socket;
 
@@ -4719,7 +4720,7 @@ export default function Home() {
             ) : (
               <div style={{ background: 'var(--bg-3)', border: '1px solid var(--line)', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-                  <span style={{ fontSize: '22px', fontWeight: '700', color: '#fff' }}>R$ 34,99</span>
+                   <span style={{ fontSize: '22px', fontWeight: '700', color: '#fff' }}>R$ {formatPremiumPrice()}</span>
                   <span style={{ fontSize: '12px', color: 'var(--muted)' }}>/mês</span>
                 </div>
                 <ul style={{ fontSize: '12px', color: 'var(--text)', lineHeight: '1.7', paddingLeft: '18px', margin: 0 }}>

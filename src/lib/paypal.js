@@ -1,8 +1,8 @@
+import { PREMIUM_PRICE, PREMIUM_CURRENCY } from '@/lib/premium';
+
 const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID || '';
 const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET || '';
 const PAYPAL_MODE = process.env.PAYPAL_MODE || 'sandbox'; // sandbox | live
-const PREMIUM_PRICE = process.env.PREMIUM_PRICE || '34.99';
-const PREMIUM_CURRENCY = process.env.PAYMIUM_CURRENCY || 'BRL';
 
 const BASE_URL = PAYPAL_MODE === 'live'
   ? 'https://api-m.paypal.com'
