@@ -268,13 +268,7 @@ function authedFetch(url, options = {}) {
 
 export default function Home() {
   // --- Estados do Sistema ---
-  const [consentGranted, setConsentGranted] = useState(() => {
-    try {
-      return document.cookie.split(';').some(c => c.trim().startsWith('nexchat_consent=accepted'));
-    } catch {
-      return false;
-    }
-  });
+  const [consentGranted, setConsentGranted] = useState(false);
   const [useMedia, setUseMedia] = useState(false);
   const [user, setUser] = useState(null); // Usuário logado
   const [loading, setLoading] = useState(false);
@@ -425,13 +419,20 @@ export default function Home() {
   const [pendingPremiumCheck, setPendingPremiumCheck] = useState(false);
 
   // --- Cookie Consent ---
-  const [cookieConsent, setCookieConsent] = useState(() => {
+  const [cookieConsent, setCookieConsent] = useState(false);
+  const [hasHydrated, setHasHydrated] = useState(false);
+
+  // Lê os cookies somente no cliente (após hidratação) para evitar mismatch SSR vs client
+  useEffect(() => {
+    setHasHydrated(true);
     try {
-      return document.cookie.split(';').some(c => c.trim().startsWith('nexchat_cookie_consent=accepted'));
-    } catch {
-      return false;
+      const cs = document.cookie;
+      if (cs.split(';').some(c => c.trim().startsWith('nexchat_consent=accepted'))) setConsentGranted(true);
+      if (cs.split(';').some(c => c.trim().startsWith('nexchat_cookie_consent=accepted'))) setCookieConsent(true);
+    } catch (e) {
+      console.warn('Não foi possível ler consentimentos:', e);
     }
-  });
+  }, []);
 
   const acceptCookies = () => {
     setCookieConsent(true);
@@ -2943,6 +2944,7 @@ export default function Home() {
   };
 
   // --- VIEW: TELA DE CONSENTIMENTO INICIAL ---
+  if (!hasHydrated) return null;
   if (!consentGranted) {
     return (
       <div style={{ display: 'flex', height: '100dvh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: '20px' }}>
