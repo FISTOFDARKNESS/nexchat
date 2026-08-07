@@ -676,8 +676,8 @@ export default function Home() {
       console.log('[Premium] status API:', data);
       if (data.success) {
         setPremiumStatus(data);
-        setChatTheme(data.chatTheme || 'default');
-        setInvisibleMode(data.invisibleMode || false);
+        setChatTheme(data.user?.chatTheme || 'default');
+        setInvisibleMode(data.user?.invisibleMode || false);
       }
     } catch (e) {
       console.error('[Premium] status error:', e);

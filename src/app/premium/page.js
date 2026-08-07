@@ -43,9 +43,9 @@ export default function PremiumPage() {
         const data = await res.json();
         if (data.success) {
           setStatus(data);
-          setChatTheme(data.chatTheme || 'default');
-          setInvisibleMode(data.invisibleMode || false);
-          if (data.chatTheme) applyTheme(data.chatTheme);
+          setChatTheme(data.user?.chatTheme || 'default');
+          setInvisibleMode(data.user?.invisibleMode || false);
+          if (data.user?.chatTheme) applyTheme(data.user.chatTheme);
         }
       } catch (e) {
         console.error(e);
@@ -67,8 +67,8 @@ export default function PremiumPage() {
         .then(data => {
           if (data.success) {
             setStatus(data);
-            setChatTheme(data.chatTheme || 'default');
-            setInvisibleMode(data.invisibleMode || false);
+            setChatTheme(data.user?.chatTheme || 'default');
+            setInvisibleMode(data.user?.invisibleMode || false);
           }
           setLoading(false);
         })
