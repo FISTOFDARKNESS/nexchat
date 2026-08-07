@@ -14,6 +14,8 @@ const MAX_SIZE = {
   file: 25 * 1024 * 1024     // 25 MB free / 50 MB premium
 };
 
+const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
+
 async function getPremiumLimit(userId) {
   const user = await sql('SELECT "premiumTier", "premiumExpiresAt" FROM "User" WHERE id = $1 LIMIT 1', [userId]);
   const u = user[0];
@@ -102,9 +104,9 @@ export async function POST(req) {
 
     // 2) Fallback: disco local
     if (!storageKey) {
-      const dir = path.join(process.cwd(), /*turbopackIgnore: true*/ dirName);
+      const dir = path.join(UPLOADS_DIR, purpose === 'avatar' ? 'avatar' : purpose === 'voice' ? 'voice' : 'media');
       await mkdir(dir, { recursive: true });
-      await writeFile(path.join(process.cwd(), /*turbopackIgnore: true*/ storagePath), bytes);
+      await writeFile(path.join(dir, storageName), bytes);
     }
 
     // View-once: expira após 24h (ou ao ser visualizado)
