@@ -1655,10 +1655,31 @@ export default function Home() {
   }
 
   // --- Ações de Matchmaking ---
-  const startRandomMatch = () => {
+  const startRandomMatch = async () => {
     if (!user) return;
     handleEndCallIfActive();
     setSelectedFriend(null);
+
+    let mode = matchMode;
+    if (mode === 'video' && !localStreamRef.current) {
+      setQueueStatusText('Solicitando permissão de câmera/microfone...');
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        localStreamRef.current = stream;
+        setUseMedia(true);
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+          localVideoRef.current.play().catch(e => console.log(e));
+        }
+      } catch (err) {
+        console.warn('Permissão de mídia recusada:', err.message);
+        addToast('Permissão de câmera/microfone negada. Entrando em modo texto.', 'error');
+        setUseMedia(false);
+        setMatchMode('text');
+        mode = 'text';
+      }
+    }
+
     setInQueue(true);
     setQueueStatusText('Entrando na fila de pareamento...');
 
@@ -1669,7 +1690,7 @@ export default function Home() {
       country: user.country,
       prefGender: matchGender,
       prefCountry: matchCountry,
-      mode: matchMode
+      mode
     });
     setActiveView('chat'); // Muda a visualização no mobile para ver a fila
   };
@@ -4367,8 +4388,8 @@ export default function Home() {
                       <input type="radio" name="matchMode" checked={matchMode === 'text'} onChange={() => setMatchMode('text')} style={{ display: 'none' }} />
                       <MessageSquare size={13} style={{ color: matchMode === 'text' ? 'var(--gold)' : 'var(--muted)' }} /> Texto
                     </label>
-                    <label style={{ flex: 1, padding: '8px', background: matchMode === 'video' ? 'var(--gold-soft)' : 'var(--bg-3)', border: matchMode === 'video' ? '1px solid var(--gold)' : '1px solid var(--line)', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', cursor: 'pointer', fontSize: '12px', minHeight: '38px', opacity: useMedia ? 1 : 0.5 }}>
-                      <input type="radio" name="matchMode" disabled={!useMedia} checked={matchMode === 'video'} onChange={() => setMatchMode('video')} style={{ display: 'none' }} />
+                    <label style={{ flex: 1, padding: '8px', background: matchMode === 'video' ? 'var(--gold-soft)' : 'var(--bg-3)', border: matchMode === 'video' ? '1px solid var(--gold)' : '1px solid var(--line)', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', cursor: 'pointer', fontSize: '12px', minHeight: '38px' }}>
+                      <input type="radio" name="matchMode" checked={matchMode === 'video'} onChange={() => setMatchMode('video')} style={{ display: 'none' }} />
                       <Video size={13} style={{ color: matchMode === 'video' ? 'var(--gold)' : 'var(--muted)' }} /> Vídeo
                     </label>
                   </div>
