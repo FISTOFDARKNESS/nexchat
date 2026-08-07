@@ -11,8 +11,9 @@ import {
   BarChart3, Megaphone, Search, History, Crown, ToggleLeft, Palette, Bell, ShieldCheck, UserCheck,
   Timer, Languages, Sticker
 } from 'lucide-react';
-import { PREMIUM_PRICE, formatPremiumPrice } from '@/lib/premium-config';
+import { PREMIUM_PRICE, formatPremiumPrice, getPriceForCountry } from '@/lib/premium-config';
 import { STICKERS, getSticker } from '@/lib/stickers';
+import { COUNTRIES, getCountryName } from '@/lib/countries';
 
 let socket;
 
@@ -89,31 +90,56 @@ const THEMES = {
   default: {
     name: 'Dourado',
     vars: {
-      '--gold': '#EAC847', '--amber': '#D97706', '--gold-soft': 'rgba(234, 200, 71, 0.12)', '--gold-glow': 'rgba(234, 200, 71, 0.35)'
+      '--gold': '#EAC847',
+      '--amber': '#D97706',
+      '--gold-soft': 'rgba(234, 200, 71, 0.12)',
+      '--gold-glow': 'rgba(234, 200, 71, 0.35)',
+      '--gold-grad': 'linear-gradient(135deg, #F5DE7A 0%, #EAC847 45%, #D97706 100%)',
+      '--shadow-gold': '0 8px 30px rgba(234, 200, 71, 0.25)'
     }
   },
   midnight: {
     name: 'Meia-noite',
     vars: {
-      '--gold': '#818CF8', '--amber': '#6366F1', '--gold-soft': 'rgba(129, 140, 248, 0.12)', '--gold-glow': 'rgba(129, 140, 248, 0.35)'
+      '--gold': '#818CF8',
+      '--amber': '#6366F1',
+      '--gold-soft': 'rgba(129, 140, 248, 0.12)',
+      '--gold-glow': 'rgba(129, 140, 248, 0.35)',
+      '--gold-grad': 'linear-gradient(135deg, #A5B4FC 0%, #818CF8 45%, #4F46E5 100%)',
+      '--shadow-gold': '0 8px 30px rgba(129, 140, 248, 0.25)'
     }
   },
   forest: {
     name: 'Floresta',
     vars: {
-      '--gold': '#4ADE80', '--amber': '#16A34A', '--gold-soft': 'rgba(74, 222, 128, 0.12)', '--gold-glow': 'rgba(74, 222, 128, 0.35)'
+      '--gold': '#4ADE80',
+      '--amber': '#16A34A',
+      '--gold-soft': 'rgba(74, 222, 128, 0.12)',
+      '--gold-glow': 'rgba(74, 222, 128, 0.35)',
+      '--gold-grad': 'linear-gradient(135deg, #86EFAC 0%, #4ADE80 45%, #15803D 100%)',
+      '--shadow-gold': '0 8px 30px rgba(74, 222, 128, 0.25)'
     }
   },
   rose: {
     name: 'Rosa',
     vars: {
-      '--gold': '#FB7185', '--amber': '#E11D48', '--gold-soft': 'rgba(251, 113, 133, 0.12)', '--gold-glow': 'rgba(251, 113, 133, 0.35)'
+      '--gold': '#FB7185',
+      '--amber': '#E11D48',
+      '--gold-soft': 'rgba(251, 113, 133, 0.12)',
+      '--gold-glow': 'rgba(251, 113, 133, 0.35)',
+      '--gold-grad': 'linear-gradient(135deg, #FDA4AF 0%, #FB7185 45%, #BE123C 100%)',
+      '--shadow-gold': '0 8px 30px rgba(251, 113, 133, 0.25)'
     }
   },
   ocean: {
     name: 'Oceano',
     vars: {
-      '--gold': '#22D3EE', '--amber': '#0891B2', '--gold-soft': 'rgba(34, 211, 238, 0.12)', '--gold-glow': 'rgba(34, 211, 238, 0.35)'
+      '--gold': '#22D3EE',
+      '--amber': '#0891B2',
+      '--gold-soft': 'rgba(34, 211, 238, 0.12)',
+      '--gold-glow': 'rgba(34, 211, 238, 0.35)',
+      '--gold-grad': 'linear-gradient(135deg, #67E8F9 0%, #22D3EE 45%, #0E7490 100%)',
+      '--shadow-gold': '0 8px 30px rgba(34, 211, 238, 0.25)'
     }
   }
 };
@@ -762,25 +788,52 @@ export default function Home() {
       console.log('[Premium] status API:', data);
       if (data.success) {
         setPremiumStatus(data);
-        setChatTheme(data.user?.chatTheme || 'default');
-        setInvisibleMode(data.user?.invisibleMode || false);
-        if (data.user) {
+        const isPrem = !!(data.premium && data.user);
+        if (!isPrem) {
+          // Reverter tudo ao normal se não for premium ou expirar
+          setChatTheme('default');
+          applyTheme('default');
+          setInvisibleMode(false);
+          setAutoTranslate(false);
+          setExpiresIn(null);
+          localStorage.setItem('nexchat_theme', 'default');
+          localStorage.setItem('nexchat_autotranslate', '0');
           setUser(prev => {
             if (!prev) return prev;
-            const merged = { ...prev };
-            let changed = false;
-            for (const k of ['premiumTier', 'premiumExpiresAt', 'verified', 'chatTheme', 'invisibleMode']) {
-              if (data.user[k] !== undefined && data.user[k] !== prev[k]) {
-                merged[k] = data.user[k];
-                changed = true;
-              }
-            }
-            if (changed) {
-              localStorage.setItem('nexchat_user', JSON.stringify(merged));
-              return merged;
-            }
-            return prev;
+            const updated = {
+              ...prev,
+              premiumTier: null,
+              premiumExpiresAt: null,
+              verified: false,
+              chatTheme: 'default',
+              invisibleMode: false
+            };
+            localStorage.setItem('nexchat_user', JSON.stringify(updated));
+            return updated;
           });
+        } else {
+          const themeToApply = data.user?.chatTheme || 'default';
+          setChatTheme(themeToApply);
+          applyTheme(themeToApply);
+          setInvisibleMode(data.user?.invisibleMode || false);
+          if (data.user) {
+            setUser(prev => {
+              if (!prev) return prev;
+              const merged = { ...prev };
+              let changed = false;
+              for (const k of ['premiumTier', 'premiumExpiresAt', 'verified', 'chatTheme', 'invisibleMode']) {
+                if (data.user[k] !== undefined && data.user[k] !== prev[k]) {
+                  merged[k] = data.user[k];
+                  changed = true;
+                }
+              }
+              if (changed) {
+                localStorage.setItem('nexchat_user', JSON.stringify(merged));
+                return merged;
+              }
+              return prev;
+            });
+          }
         }
       }
     } catch (e) {
@@ -3401,11 +3454,11 @@ export default function Home() {
                   <div style={{ flex: 1 }}>
                     <label style={{ display: 'block', fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>País</label>
                     <select value={loginCountry} onChange={e => setLoginCountry(e.target.value)} style={{ width: '100%', minHeight: '44px' }}>
-                      <option value="BR">Brasil</option>
-                      <option value="US">Estados Unidos</option>
-                      <option value="PT">Portugal</option>
-                      <option value="AR">Argentina</option>
-                      <option value="ES">Espanha</option>
+                      {COUNTRIES.map(c => (
+                        <option key={c.code} value={c.code}>
+                          {c.flag} {c.name}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -4159,7 +4212,7 @@ export default function Home() {
                 <div style={{ minWidth: 0 }}>
                   <h4 style={{ fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {selectedGroup ? selectedGroup.name : inRandomChat ? `Parceiro (${randomPartner?.country})` : selectedFriend.username}
+                      {selectedGroup ? selectedGroup.name : inRandomChat ? `Parceiro (${getCountryName(randomPartner?.country)})` : selectedFriend.username}
                     </span>
                     {!selectedGroup && <UserBadges user={inRandomChat ? randomPartner : selectedFriend} size={11} />}
                   </h4>
@@ -4902,10 +4955,12 @@ export default function Home() {
                   <div style={{ flex: 1 }}>
                     <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Filtro País</label>
                     <select value={matchCountry} onChange={e => setMatchCountry(e.target.value)} style={{ width: '100%', fontSize: '12px', minHeight: '40px', padding: '6px 10px' }}>
-                      <option value="any">Qualquer</option>
-                      <option value="BR">Brasil</option>
-                      <option value="US">EUA</option>
-                      <option value="PT">Portugal</option>
+                      <option value="any">Qualquer País (100+)</option>
+                      {COUNTRIES.map(c => (
+                        <option key={c.code} value={c.code}>
+                          {c.flag} {c.name}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -5348,7 +5403,15 @@ export default function Home() {
             ) : (
               <div style={{ background: 'var(--bg-3)', border: '1px solid var(--line)', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-                   <span style={{ fontSize: '22px', fontWeight: '700', color: '#fff' }}>R$ {formatPremiumPrice()}</span>
+                   {(() => {
+                     const pInfo = getPriceForCountry(user?.country);
+                     const symbol = pInfo.currency === 'EUR' ? '€' : pInfo.currency === 'USD' ? '$' : 'R$';
+                     return (
+                       <span style={{ fontSize: '22px', fontWeight: '700', color: '#fff' }}>
+                         {symbol} {String(pInfo.price).replace('.', ',')}
+                       </span>
+                     );
+                   })()}
                   <span style={{ fontSize: '12px', color: 'var(--muted)' }}>/mês</span>
                 </div>
                 <ul style={{ fontSize: '12px', color: 'var(--text)', lineHeight: '1.7', paddingLeft: '18px', margin: 0 }}>
@@ -5377,7 +5440,7 @@ export default function Home() {
                     addToast('Erro ao conectar', 'error');
                     setBuying(false);
                   }
-                }} disabled={buying} className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: '16px', minHeight: '44px', background: 'var(--gold)', color: '#000', fontWeight: '700' }}>
+                }} disabled={buying} className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: '16px', minHeight: '44px', background: 'var(--gold-grad)', color: '#000', fontWeight: '700' }}>
                   {buying ? 'Redirecionando...' : 'Assinar Premium'}
                 </button>
               </div>
