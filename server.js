@@ -531,6 +531,29 @@ app.prepare().then(() => {
       socket.to(roomId).emit('group_msg_unreacted', { messageId, emoji, userId });
     });
 
+    socket.on('like_group_msg', (data) => {
+      // data: { groupId, messageId, likedByUserId }
+      const { groupId, messageId, likedByUserId } = data;
+      if (!groupId || !messageId || !likedByUserId) return;
+      const roomId = `group_chat_${groupId}`;
+      socket.to(roomId).emit('receive_group_msg_like', { messageId, likedByUserId });
+    });
+
+    socket.on('pin_group_msg', (data) => {
+      // data: { groupId, messageId, pinnedAt }
+      const { groupId, messageId, pinnedAt } = data;
+      if (!groupId || !messageId) return;
+      const roomId = `group_chat_${groupId}`;
+      socket.to(roomId).emit('group_msg_pinned', { messageId, pinnedAt: pinnedAt || new Date().toISOString() });
+    });
+
+    socket.on('unpin_group_msg', (data) => {
+      const { groupId, messageId } = data;
+      if (!groupId || !messageId) return;
+      const roomId = `group_chat_${groupId}`;
+      socket.to(roomId).emit('group_msg_unpinned', { messageId });
+    });
+
     socket.on('send_friend_msg', (data) => {
       if (!checkSocketRateLimit(socket.id)) {
         socket.emit('rate_limited');

@@ -267,9 +267,43 @@ export async function POST(req) {
 
     // 6. FIXAR MENSAGEM (PIN)
     if (action === 'pin') {
-      const { messageId } = body;
+      const { messageId, groupId } = body;
       if (!messageId) {
         return NextResponse.json({ error: 'messageId é obrigatório' }, { status: 400 });
+      }
+      if (groupId) {
+        const membership = await sql(
+          `SELECT 1 FROM "GroupMember" WHERE "groupId" = $1 AND "userId" = $2 LIMIT 1`,
+          [groupId, userId]
+        );
+        if (membership.length === 0) {
+          return NextResponse.json({ error: 'Você não é membro deste grupo' }, { status: 403 });
+        }
+        const exists = await sql(
+          `SELECT 1 FROM "GroupMessage" WHERE id = $1 AND "groupId" = $2 LIMIT 1`,
+          [messageId, groupId]
+        );
+        if (exists.length === 0) {
+          return NextResponse.json({ error: 'Mensagem não encontrada' }, { status: 404 });
+        }
+        const premium = await sql(
+          `SELECT "premiumTier", "premiumExpiresAt" FROM "User" WHERE id = $1 LIMIT 1`,
+          [userId]
+        );
+        const isPremiumUser = premium[0]?.premiumTier === 'premium' && premium[0]?.premiumExpiresAt && new Date(premium[0].premiumExpiresAt) > new Date();
+        const maxPins = isPremiumUser ? 50 : 5;
+        const pinnedCount = await sql(
+          `SELECT COUNT(*) FROM "GroupMessage" WHERE "groupId" = $1 AND "pinnedAt" IS NOT NULL`,
+          [groupId]
+        );
+        if (Number(pinnedCount[0]?.count || 0) >= maxPins) {
+          return NextResponse.json({ error: `Limite de ${maxPins} mensagens fixadas no plano free. Assine premium.` }, { status: 403 });
+        }
+        await sql(
+          `UPDATE "GroupMessage" SET "pinnedAt" = now() WHERE id = $1`,
+          [messageId]
+        );
+        return NextResponse.json({ success: true });
       }
       const msg = await sql(
         'SELECT "senderId", "receiverId" FROM "DirectMessage" WHERE id = $1 LIMIT 1',
@@ -303,9 +337,30 @@ export async function POST(req) {
 
     // 7. DESFIXAR MENSAGEM (UNPIN)
     if (action === 'unpin') {
-      const { messageId } = body;
+      const { messageId, groupId } = body;
       if (!messageId) {
         return NextResponse.json({ error: 'messageId é obrigatório' }, { status: 400 });
+      }
+      if (groupId) {
+        const membership = await sql(
+          `SELECT 1 FROM "GroupMember" WHERE "groupId" = $1 AND "userId" = $2 LIMIT 1`,
+          [groupId, userId]
+        );
+        if (membership.length === 0) {
+          return NextResponse.json({ error: 'Você não é membro deste grupo' }, { status: 403 });
+        }
+        const exists = await sql(
+          `SELECT 1 FROM "GroupMessage" WHERE id = $1 AND "groupId" = $2 LIMIT 1`,
+          [messageId, groupId]
+        );
+        if (exists.length === 0) {
+          return NextResponse.json({ error: 'Mensagem não encontrada' }, { status: 404 });
+        }
+        await sql(
+          `UPDATE "GroupMessage" SET "pinnedAt" = NULL WHERE id = $1`,
+          [messageId]
+        );
+        return NextResponse.json({ success: true });
       }
       const msg = await sql(
         'SELECT "senderId", "receiverId" FROM "DirectMessage" WHERE id = $1 LIMIT 1',

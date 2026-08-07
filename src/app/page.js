@@ -1260,6 +1260,33 @@ export default function Home() {
       }));
     });
 
+    socket.on('receive_group_msg_like', (data) => {
+      const { messageId, likedByUserId } = data;
+      setMessages(prev => prev.map(m => {
+        if (m.id === messageId) {
+          const current = m.likedBy || [];
+          const alreadyLiked = current.includes(likedByUserId);
+          return {
+            ...m,
+            likedBy: alreadyLiked
+              ? current.filter(id => id !== likedByUserId)
+              : [...current, likedByUserId]
+          };
+        }
+        return m;
+      }));
+    });
+
+    socket.on('group_msg_pinned', (data) => {
+      const { messageId, pinnedAt } = data;
+      setMessages(prev => prev.map(m => m.id === messageId ? { ...m, pinnedAt } : m));
+    });
+
+    socket.on('group_msg_unpinned', (data) => {
+      const { messageId } = data;
+      setMessages(prev => prev.map(m => m.id === messageId ? { ...m, pinnedAt: null } : m));
+    });
+
     socket.on('receive_random_friend_request', () => {
       setRandomFriendRequestStatus('received');
       addToast('Seu parceiro de chat enviou um pedido de amizade! Clique em Solicitar para aceitar.', 'info');
@@ -2223,6 +2250,35 @@ export default function Home() {
       } catch (err) {
         console.error(err);
       }
+    } else if (selectedGroup) {
+      try {
+        const res = await authedFetch('/api/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'like',
+            messageId: msgId
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          setMessages(prev => prev.map(m => {
+            if (m.id === msgId) {
+              const current = m.likedBy || [];
+              return {
+                ...m,
+                likedBy: data.liked 
+                  ? [...current, user.id]
+                  : current.filter(id => id !== user.id)
+              };
+            }
+            return m;
+          }));
+          socket.emit('like_group_msg', { groupId: selectedGroup.id, messageId: msgId, likedByUserId: user.id });
+        }
+      } catch (err) {
+        console.error(err);
+      }
     }
   };
 
@@ -2259,6 +2315,14 @@ export default function Home() {
               }
             };
           });
+        }
+        if (selectedGroup) {
+          socket.emit(data.removed ? 'unreact_group_msg' : 'react_group_msg', { groupId: selectedGroup.id, messageId, emoji, userId: user.id, username: user.username });
+        } else if (inRandomChat && randomRoomId) {
+          socket.emit(data.removed ? 'unreact_random_msg' : 'react_random_msg', { roomId: randomRoomId, messageId, emoji, userId: user.id, username: user.username });
+        } else if (selectedFriend) {
+          const sortedIds = [user.id, selectedFriend.friendId].sort();
+          socket.emit(data.removed ? 'unreact_friend_msg' : 'react_friend_msg', { roomId: `friend_chat_${sortedIds[0]}_${sortedIds[1]}`, messageId, emoji, userId: user.id, username: user.username });
         }
       }
     } catch (err) {
@@ -2509,17 +2573,21 @@ export default function Home() {
   }, [chatSearch, selectedFriend]);
 
   const pinMessage = async (messageId) => {
-    if (!user || !selectedFriend) return;
+    if (!user) return;
     try {
       const res = await authedFetch('/api/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'pin', messageId })
+        body: JSON.stringify({ action: 'pin', messageId, groupId: selectedGroup ? selectedGroup.id : undefined })
       });
       const data = await res.json();
       if (data.success) {
-        setMessages(prev => prev.map(m => m.id === messageId ? { ...m, pinnedAt: new Date().toISOString() } : m));
+        const pinnedAt = new Date().toISOString();
+        setMessages(prev => prev.map(m => m.id === messageId ? { ...m, pinnedAt } : m));
+        if (selectedGroup) socket.emit('pin_group_msg', { groupId: selectedGroup.id, messageId, pinnedAt });
         addToast('Mensagem fixada.', 'success');
+      } else {
+        addToast(data.error || 'Erro ao fixar.', 'warning');
       }
     } catch (err) {
       console.error(err);
@@ -2527,17 +2595,20 @@ export default function Home() {
   };
 
   const unpinMessage = async (messageId) => {
-    if (!user || !selectedFriend) return;
+    if (!user) return;
     try {
       const res = await authedFetch('/api/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'unpin', messageId })
+        body: JSON.stringify({ action: 'unpin', messageId, groupId: selectedGroup ? selectedGroup.id : undefined })
       });
       const data = await res.json();
       if (data.success) {
         setMessages(prev => prev.map(m => m.id === messageId ? { ...m, pinnedAt: null } : m));
+        if (selectedGroup) socket.emit('unpin_group_msg', { groupId: selectedGroup.id, messageId });
         addToast('Mensagem desfixada.', 'info');
+      } else {
+        addToast(data.error || 'Erro ao desfixar.', 'warning');
       }
     } catch (err) {
       console.error(err);
@@ -4205,11 +4276,11 @@ export default function Home() {
                       <button onClick={() => setReactionPicker(reactionPicker?.messageId === msg.id ? null : { messageId: msg.id })} style={{ color: 'var(--muted)', border: 'none', background: 'none' }}>
                         <Smile size={11} />
                       </button>
-                      {msg.pinnedAt ? (
+                      {(selectedFriend || selectedGroup) && (msg.pinnedAt ? (
                         <button onClick={() => unpinMessage(msg.id)} style={{ color: 'var(--gold)', border: 'none', background: 'none', fontWeight: '700' }}>📌 Fixada</button>
                       ) : (
                         <button onClick={() => pinMessage(msg.id)} style={{ color: 'var(--muted)', border: 'none', background: 'none' }}>📌</button>
-                      )}
+                      ))}
                       {isMe && selectedFriend && !inRandomChat && msg.type !== 'call' && (
                         <button onClick={() => startEditMessage(msg)} style={{ color: 'var(--gold)', border: 'none', background: 'none' }}>Editar</button>
                       )}

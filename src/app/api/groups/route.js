@@ -32,9 +32,15 @@ export async function GET(req) {
         [groupId]
       );
       const messages = await sql(
-        `SELECT gm.id, gm."groupId", gm."senderId", gm.content, gm."editedAt", gm."createdAt", gm."attachmentId",
+        `SELECT gm.id, gm."groupId", gm."senderId", gm.content, gm."editedAt", gm."createdAt", gm."attachmentId", gm."pinnedAt",
                 f.mime as "attachMime", f.filename as "attachFilename", f.size as "attachSize", f."viewOnce" as "attachViewOnce",
-                u.username as "senderName"
+                u.username as "senderName",
+                COALESCE(
+                  (SELECT json_agg(ml."userId")
+                   FROM "MessageLike" ml
+                   WHERE ml."messageId" = gm.id),
+                  '[]'::json
+                ) as "likedBy"
          FROM "GroupMessage" gm
          LEFT JOIN "File" f ON f.id = gm."attachmentId"
          JOIN "User" u ON u.id = gm."senderId"
