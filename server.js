@@ -146,9 +146,7 @@ app.prepare().then(() => {
 
   const io = new Server(httpServer, {
     cors: {
-      origin: process.env.CORS_ORIGIN 
-        ? process.env.CORS_ORIGIN.split(',') 
-        : (origin, cb) => cb(new Error("CORS_ORIGIN missing, socket blocked")),
+      origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()) : false,
       methods: ["GET", "POST"]
     }
   });
