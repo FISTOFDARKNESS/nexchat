@@ -56,6 +56,15 @@ function formatFileSize(bytes) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function getDayLabel(iso) {
+  const date = new Date(iso);
+  const startOf = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((startOf(new Date()) - startOf(date)) / 86400000);
+  if (diffDays === 0) return 'Hoje';
+  if (diffDays === 1) return 'Ontem';
+  return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
 function getTs() {
   return Date.now();
 }
@@ -3312,9 +3321,9 @@ export default function Home() {
   if (!hasHydrated) return null;
   if (!consentGranted) {
     return (
-      <div style={{ display: 'flex', height: '100dvh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: '20px' }}>
-        <div className="glass-card animate-slide-in" style={{ maxWidth: '500px', width: '100%', textAlign: 'center', border: '1px solid var(--line)' }}>
-          <h2 style={{ color: 'var(--gold)', marginBottom: '16px' }}>Consentimento e Permissões</h2>
+      <div style={{ display: 'flex', height: '100dvh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: 'transparent', padding: '20px' }}>
+        <div className="gold-glow-card animate-slide-in" style={{ maxWidth: '500px', width: '100%', textAlign: 'center', borderRadius: 'var(--radius-lg)' }}>
+          <h2 className="shimmer-text" style={{ marginBottom: '16px', fontSize: '24px' }}>Consentimento e Permissões</h2>
           <p style={{ color: 'var(--muted)', fontSize: '14px', lineHeight: '1.6', marginBottom: '24px' }}>
             Para oferecer chamadas de vídeo, chat em tempo real e uma experiência personalizada, nosso site utiliza cookies locais de sessão. 
             Você deseja ativar sua câmera e microfone agora para fazer videochamadas com aleatórios?
@@ -3335,14 +3344,37 @@ export default function Home() {
   // --- VIEW: TELA DE LOGIN ---
   if (!user) {
     return (
-      <div style={{ display: 'flex', height: '100dvh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: '16px' }}>
-        <div className="glass-card animate-slide-in" style={{ width: '100%', maxWidth: '420px', border: '1px solid var(--line)' }}>
-          <div style={{ textAlign: 'center', marginBottom: '24px' }} className="animate-float">
-            <h1 style={{ color: 'var(--gold)', fontSize: '32px', textShadow: '0 0 15px var(--gold-glow)' }}>NexChat</h1>
+      <div style={{ display: 'flex', height: '100dvh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: 'transparent', padding: '16px' }}>
+        <div className="gold-glow-card animate-slide-in" style={{ width: '100%', maxWidth: '420px', borderRadius: 'var(--radius-lg)', position: 'relative', overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', top: '-60px', right: '-60px', width: '160px', height: '160px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(234,200,71,0.14), transparent 70%)', pointerEvents: 'none' }} className="animate-glow-pulse" />
+          <div style={{ position: 'absolute', bottom: '-70px', left: '-70px', width: '180px', height: '180px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(217,119,6,0.12), transparent 70%)', pointerEvents: 'none' }} className="animate-glow-pulse" />
+
+          <div style={{ textAlign: 'center', marginBottom: '24px', position: 'relative' }}>
+            <div style={{ position: 'relative', width: '72px', height: '72px', margin: '0 auto 14px' }} className="animate-float">
+              <div style={{ position: 'absolute', inset: '-10px', borderRadius: '50%', background: 'conic-gradient(from 0deg, transparent 0%, var(--gold) 25%, transparent 50%, var(--gold) 75%, transparent 100%)', opacity: 0.8, filter: 'blur(3px)' }} className="animate-spin-slow" />
+              <div style={{ position: 'absolute', inset: '-3px', borderRadius: '50%', background: 'conic-gradient(from 180deg, transparent 0%, rgba(234,200,71,0.5) 30%, transparent 60%)', opacity: 0.6, filter: 'blur(1px)' }} className="animate-spin-slow-reverse" />
+              <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: 'var(--gold-grad)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', boxShadow: '0 6px 24px rgba(234,200,71,0.45)' }}>
+                <MessageSquare size={30} color="#0B0B0F" strokeWidth={2.2} />
+              </div>
+            </div>
+            <h1 className="shimmer-text" style={{ fontSize: '34px', fontWeight: '800' }}>NexChat</h1>
             <p style={{ color: 'var(--muted)', fontSize: '13px', marginTop: '4px' }}>A sua plataforma de conexões imediatas</p>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '14px', flexWrap: 'wrap' }}>
+              <span className="feature-chip"><MessageSquare size={12} /> Chat</span>
+              <span className="feature-chip"><Video size={12} /> Vídeo</span>
+              <span className="feature-chip"><Timer size={12} /> Match</span>
+            </div>
           </div>
 
           <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className="segmented" role="tablist">
+              <button type="button" className={loginMode === 'guest' ? 'active' : ''} onClick={() => setLoginMode('guest')}>
+                <User size={14} /> Convidado
+              </button>
+              <button type="button" className={loginMode === 'google' ? 'active' : ''} onClick={() => setLoginMode('google')}>
+                <ShieldCheck size={14} /> Google
+              </button>
+            </div>
             {loginMode === 'guest' ? (
               <>
                 <div>
@@ -3404,21 +3436,6 @@ export default function Home() {
                 <AlertCircle size={14} /> {authError}
               </p>
             )}
-
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', fontSize: '13px', marginTop: '12px', borderTop: '1px solid var(--line)', paddingTop: '12px' }}>
-              <span 
-                onClick={() => setLoginMode('guest')} 
-                style={{ color: loginMode === 'guest' ? 'var(--gold)' : 'var(--muted)', cursor: 'pointer', fontWeight: loginMode === 'guest' ? '600' : '400', padding: '6px' }}
-              >
-                Entrar como Convidado
-              </span>
-              <span 
-                onClick={() => setLoginMode('google')} 
-                style={{ color: loginMode === 'google' ? 'var(--gold)' : 'var(--muted)', cursor: 'pointer', fontWeight: loginMode === 'google' ? '600' : '400', padding: '6px' }}
-              >
-                Entrar com Google API
-              </span>
-            </div>
           </form>
         </div>
       </div>
@@ -3427,7 +3444,7 @@ export default function Home() {
 
   // --- VIEW: PRINCIPAL DO APLICATIVO ---
   return (
-    <div className="app-container" style={{ display: 'flex', height: '100dvh', width: '100vw', background: 'var(--bg)', overflow: 'hidden', position: 'relative' }}>
+    <div className="app-container" style={{ display: 'flex', height: '100dvh', width: '100vw', background: 'transparent', overflow: 'hidden', position: 'relative' }}>
       
       {/* Banner de anúncio global (admin) */}
       {announcement && (
@@ -3465,12 +3482,12 @@ export default function Home() {
         className="animate-slide-in-left"
       >
         {/* Perfil e Logout */}
-        <div style={{ padding: '16px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ padding: '16px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: 'inset 0 -1px 0 rgba(234,200,71,0.12)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, cursor: 'pointer' }} onClick={() => openProfile({ friendId: user.id })}>
             <div style={{ position: 'relative' }}>
               <Avatar url={user.avatarUrl} name={user.username} size={38} border="1px solid var(--gold)" />
               {premiumStatus?.premium && (
-                <div style={{ position: 'absolute', top: '-6px', right: '-6px', background: 'var(--gold)', borderRadius: '50%', width: '18px', height: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ position: 'absolute', top: '-6px', right: '-6px', background: 'var(--gold)', borderRadius: '50%', width: '18px', height: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 10px var(--gold-glow)' }}>
                   <Crown size={10} color="#000" />
                 </div>
               )}
@@ -3509,7 +3526,7 @@ export default function Home() {
               setShowAdminPanel(false);
               if (isMobile) setActiveView('chat');
             }} 
-            style={{ width: '100%', justifyContent: 'center', background: 'var(--gold-soft)', border: '1px solid var(--gold)', color: 'var(--gold)', minHeight: '44px' }}
+            style={{ width: '100%', justifyContent: 'center', background: 'linear-gradient(135deg, var(--gold), var(--amber))', border: 'none', color: '#0B0B0F', fontWeight: '700', minHeight: '44px', boxShadow: '0 4px 18px rgba(234, 200, 71, 0.25)' }}
           >
             <Video size={18} /> Chat Aleatório (Omegle)
           </button>
@@ -3537,7 +3554,7 @@ export default function Home() {
         {/* Lista de Solicitações Pendentes */}
         {pendingReceived.length > 0 && (
           <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', background: 'rgba(234,200,71,0.03)' }}>
-            <span style={{ fontSize: '11px', color: 'var(--gold)', fontWeight: '600', display: 'block', marginBottom: '8px' }}>
+            <span className="sidebar-section-title" style={{ color: 'var(--gold)', display: 'flex', marginBottom: '8px' }}>
               CONVITES DE AMIZADE ({pendingReceived.length})
             </span>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -3563,7 +3580,7 @@ export default function Home() {
 
         {/* Lista de Amigos (Discord style) */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '12px 0' }}>
-          <span style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: '600', padding: '0 16px', display: 'block', marginBottom: '8px' }}>
+          <span className="sidebar-section-title" style={{ padding: '0 16px', display: 'flex', marginBottom: '8px' }}>
             MENSAGENS DIRETAS ({friendsList.length})
           </span>
           {friendsList.length === 0 ? (
@@ -3618,7 +3635,7 @@ export default function Home() {
         {/* Lista de Grupos (Discord style) */}
         <div style={{ borderTop: '1px solid var(--line)', padding: '12px 0' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', marginBottom: '8px' }}>
-            <span style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: '600' }}>
+            <span className="sidebar-section-title">
               GRUPOS ({groupsList.length})
             </span>
             <button onClick={() => setShowCreateGroupModal(true)} title="Criar grupo" style={{ color: 'var(--gold)', padding: '4px', display: 'flex' }}>
@@ -4105,7 +4122,7 @@ export default function Home() {
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%' }} className="animate-fade-in">
             
             {/* Header do Chat */}
-            <div style={{ height: isMobile ? '56px' : '64px', borderBottom: '1px solid var(--line)', padding: isMobile ? '0 6px' : '0 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-2)', flexShrink: 0 }}>
+            <div style={{ height: isMobile ? '56px' : '64px', borderBottom: '1px solid var(--line)', padding: isMobile ? '0 6px' : '0 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(180deg, rgba(26,26,32,0.95), var(--bg-2))', flexShrink: 0, boxShadow: 'inset 0 -1px 0 rgba(234,200,71,0.12)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '4px' : '6px', maxWidth: isMobile ? '42%' : '50%' }}>
                 {isMobile && (
                   <button 
@@ -4151,7 +4168,7 @@ export default function Home() {
                       : inRandomChat
                         ? `Filtro: ${randomPartner?.gender === 'male' ? 'Homem' : 'Mulher'}`
                         : typingStatus.isTyping && typingStatus.friendId === selectedFriend.friendId
-                          ? <span style={{ color: 'var(--gold)' }}>digitando...</span>
+                          ? <span style={{ color: 'var(--gold)', display: 'inline-flex', alignItems: 'center', gap: '5px', fontWeight: '600' }}>digitando <span className="typing-dots"><span></span><span></span><span></span></span></span>
                           : selectedFriend.customId}
                   </span>
                 </div>
@@ -4352,15 +4369,23 @@ export default function Home() {
                 <span style={{ fontSize: '11px', color: 'var(--gold)' }}>{searchResults.length} resultado(s) para &ldquo;{chatSearch}&rdquo;</span>
               </div>
             )}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {(chatSearch ? searchResults : messages).map((msg) => {
+            <div className="chat-ambient" style={{ flex: 1, overflowY: 'auto', padding: '16px 12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {(chatSearch ? searchResults : messages).map((msg, idx, arr) => {
                 const isMe = msg.senderId === user.id;
                 const liked = (msg.likedBy || []).includes(user.id);
+                const prevMsg = idx > 0 ? arr[idx - 1] : null;
+                const dayChanged = !prevMsg || new Date(msg.createdAt).toDateString() !== new Date(prevMsg.createdAt).toDateString();
 
                 // Bolha de sistema: bio do parceiro ao encontrar conexão
                 if (msg.type === 'system') {
                   return (
-                    <div key={msg.id} style={{ alignSelf: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', maxWidth: '85%' }} className="animate-slide-in">
+                    <React.Fragment key={msg.id}>
+                    {dayChanged && (
+                      <div style={{ alignSelf: 'center' }}>
+                        <span className="day-separator">{getDayLabel(msg.createdAt)}</span>
+                      </div>
+                    )}
+                    <div style={{ alignSelf: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', maxWidth: '85%' }} className="animate-slide-in">
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--bg-2)', border: '1px solid var(--gold)', borderRadius: '12px', padding: '8px 14px', color: 'var(--muted)', fontSize: '11px' }}>
                         <UserCheck size={12} style={{ color: 'var(--gold)' }} />
                         <span style={{ fontWeight: '700', color: 'var(--gold)' }}>{msg.partnerName}</span>
@@ -4373,6 +4398,7 @@ export default function Home() {
                         {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
+                    </React.Fragment>
                   );
                 }
 
@@ -4380,9 +4406,15 @@ export default function Home() {
                 if (msg.type === 'sticker') {
                   const sticker = getSticker(msg.content);
                   return (
-                    <div key={msg.id} style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', display: 'flex', flexDirection: 'column', gap: '2px', alignItems: isMe ? 'flex-end' : 'flex-start', maxWidth: '80%' }} className="animate-slide-in">
+                    <React.Fragment key={msg.id}>
+                    {dayChanged && (
+                      <div style={{ alignSelf: 'center' }}>
+                        <span className="day-separator">{getDayLabel(msg.createdAt)}</span>
+                      </div>
+                    )}
+                    <div style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', display: 'flex', flexDirection: 'column', gap: '2px', alignItems: isMe ? 'flex-end' : 'flex-start', maxWidth: '80%' }} className="animate-slide-in">
                       {msg.expiresAt && <ExpiryBadge expiresAt={msg.expiresAt} onExpired={() => handleExpiredMsg(msg.id)} />}
-                      <div title={sticker?.label || 'Sticker'} style={{ fontSize: '44px', lineHeight: 1, padding: '6px 10px', background: 'var(--bg-3)', border: '1px solid var(--line)', borderRadius: '14px', display: 'inline-block', position: 'relative' }}>
+                      <div title={sticker?.label || 'Sticker'} style={{ fontSize: '44px', lineHeight: 1, padding: '6px 10px', background: isMe ? 'linear-gradient(135deg, var(--gold), var(--amber))' : 'var(--bg-3)', border: isMe ? 'none' : '1px solid var(--line)', borderRadius: '14px', display: 'inline-block', position: 'relative', boxShadow: isMe ? '0 4px 16px rgba(234, 200, 71, 0.25)' : 'none' }}>
                         {sticker ? sticker.emoji : msg.content}
                       </div>
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '9px', color: 'var(--muted)', padding: '0 4px' }}>
@@ -4395,13 +4427,20 @@ export default function Home() {
                         )}
                       </div>
                     </div>
+                    </React.Fragment>
                   );
                 }
 
                 // Registro de chamada: chip centralizado (fica salvo no chat)
                 if (msg.type === 'call') {
                   return (
-                    <div key={msg.id} style={{ alignSelf: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }} className="animate-slide-in">
+                    <React.Fragment key={msg.id}>
+                    {dayChanged && (
+                      <div style={{ alignSelf: 'center' }}>
+                        <span className="day-separator">{getDayLabel(msg.createdAt)}</span>
+                      </div>
+                    )}
+                    <div style={{ alignSelf: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }} className="animate-slide-in">
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: '10px', padding: '6px 12px', color: 'var(--muted)', fontSize: '11px' }}>
                         {msg.content === 'Chamada de vídeo' ? (
                           <Video size={12} style={{ color: 'var(--gold)' }} />
@@ -4423,12 +4462,18 @@ export default function Home() {
                         )}
                       </span>
                     </div>
+                    </React.Fragment>
                   );
                 }
 
                 return (
+                  <React.Fragment key={msg.id}>
+                  {dayChanged && (
+                    <div style={{ alignSelf: 'center' }}>
+                      <span className="day-separator">{getDayLabel(msg.createdAt)}</span>
+                    </div>
+                  )}
                   <div 
-                    key={msg.id} 
                     style={{ 
                       alignSelf: isMe ? 'flex-end' : 'flex-start',
                       maxWidth: '80%',
@@ -4472,19 +4517,21 @@ export default function Home() {
                       </div>
                     ) : (
                       <div style={{ 
-                        background: isMe ? 'var(--gold-soft)' : 'var(--bg-3)', 
-                        border: isMe ? '1px solid var(--gold)' : '1px solid var(--line)', 
-                        color: isMe ? '#fff' : 'var(--text)', 
+                        background: isMe ? 'linear-gradient(135deg, var(--gold), var(--amber))' : 'rgba(26, 26, 32, 0.92)', 
+                        border: isMe ? 'none' : '1px solid rgba(234, 200, 71, 0.22)', 
+                        color: isMe ? '#0B0B0F' : 'var(--text)', 
                         padding: msg.attachmentId ? '6px 6px 8px 6px' : '8px 12px', 
                         borderRadius: isMe ? '14px 14px 2px 14px' : '14px 14px 14px 2px',
+                        boxShadow: isMe ? '0 4px 18px rgba(234, 200, 71, 0.28)' : '0 2px 10px rgba(0, 0, 0, 0.35)',
                         position: 'relative'
                       }}>
+                        {!msg.attachmentId && (isMe ? <div className="bubble-tail-own" /> : <div className="bubble-tail-other" />)}
                         {msg.attachmentId && <MediaPreview msg={msg} />}
                         {msg.content && (
                           <p style={{ fontSize: '13px', lineHeight: '1.4', wordBreak: 'break-word', padding: msg.attachmentId ? '2px 6px 0' : 0 }}>
                             {msg.content}
                             {msg.editedAt && (
-                              <span style={{ fontSize: '9px', color: 'var(--muted)', fontStyle: 'italic', marginLeft: '6px' }}>editada</span>
+                              <span style={{ fontSize: '9px', color: isMe ? 'rgba(0,0,0,0.55)' : 'var(--muted)', fontStyle: 'italic', marginLeft: '6px' }}>editada</span>
                             )}
                           </p>
                         )}
@@ -4494,12 +4541,12 @@ export default function Home() {
                           </div>
                         )}
                         {translations[msg.id] && msg.content && (
-                          <div style={{ borderTop: '1px dashed var(--line)', marginTop: '4px', paddingTop: '4px' }}>
-                            <p style={{ fontSize: '12px', lineHeight: '1.4', wordBreak: 'break-word', color: 'var(--gold)' }}>
+                          <div style={{ borderTop: '1px dashed rgba(0,0,0,0.2)', marginTop: '4px', paddingTop: '4px' }}>
+                            <p style={{ fontSize: '12px', lineHeight: '1.4', wordBreak: 'break-word', color: isMe ? '#0B0B0F' : 'var(--gold)' }}>
                               {translations[msg.id].text}
                             </p>
-                            <span style={{ fontSize: '8px', color: 'var(--muted)' }}>
-                              Traduzido de {translations[msg.id].lang} · <button onClick={() => setTranslations(prev => { const n = { ...prev }; delete n[msg.id]; return n; })} style={{ color: 'var(--muted)', border: 'none', background: 'none', textDecoration: 'underline', fontSize: '8px' }}>ocultar</button>
+                            <span style={{ fontSize: '8px', color: isMe ? 'rgba(0,0,0,0.55)' : 'var(--muted)' }}>
+                              Traduzido de {translations[msg.id].lang} · <button onClick={() => setTranslations(prev => { const n = { ...prev }; delete n[msg.id]; return n; })} style={{ color: isMe ? 'rgba(0,0,0,0.55)' : 'var(--muted)', border: 'none', background: 'none', textDecoration: 'underline', fontSize: '8px' }}>ocultar</button>
                             </span>
                           </div>
                         )}
@@ -4624,13 +4671,14 @@ export default function Home() {
                       )}
                     </div>
                   </div>
+                  </React.Fragment>
                 );
               })}
               <div ref={messagesEndRef} />
             </div>
 
             {/* Input Bar */}
-            <form onSubmit={(e) => { e.preventDefault(); if (isRecordingVoice) { sendVoiceMessage(); } else if (attachment) { sendMediaMessage(); } else if (selectedGroup) { sendGroupMessage(e); } else { handleSendMessage(e); } }} style={{ padding: isMobile ? '8px' : '12px', background: 'var(--bg-2)', borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0, position: 'relative' }}>
+            <form onSubmit={(e) => { e.preventDefault(); if (isRecordingVoice) { sendVoiceMessage(); } else if (attachment) { sendMediaMessage(); } else if (selectedGroup) { sendGroupMessage(e); } else { handleSendMessage(e); } }} style={{ padding: isMobile ? '8px' : '12px', background: 'linear-gradient(0deg, var(--bg-2), rgba(26,26,32,0.95))', borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0, position: 'relative', boxShadow: 'inset 0 1px 0 rgba(234,200,71,0.12)' }}>
               {replyingTo && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-3)', borderLeft: '3px solid var(--gold)', padding: '6px 12px', borderRadius: '4px' }}>
                   <div style={{ fontSize: '11px', minWidth: 0 }}>
@@ -4804,13 +4852,13 @@ export default function Home() {
               position: 'relative',
               boxShadow: '0 0 20px var(--gold-glow)',
               marginBottom: '24px',
-            }}>
+            }} className="animate-ring-pulse">
               <div className="radar-wave-1"></div>
               <div className="radar-wave-2"></div>
               <Video size={36} style={{ color: 'var(--gold)', zIndex: 2 }} />
             </div>
             
-            <h2 style={{ color: 'var(--gold)', marginBottom: '8px', fontSize: '20px' }}>Matchmaking Conectado</h2>
+            <h2 className="shimmer-text" style={{ marginBottom: '8px', fontSize: '20px' }}>Matchmaking Conectado</h2>
             <p style={{ color: 'var(--muted)', maxWidth: '300px', fontSize: '13px', marginBottom: '24px', lineHeight: '1.4' }}>
               {queueStatusText}
             </p>
@@ -4831,11 +4879,11 @@ export default function Home() {
               </button>
             )}
 
-            <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'var(--gold-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--gold)', marginBottom: '16px' }} className="animate-float">
-              <ShieldAlert size={28} style={{ color: 'var(--gold)' }} />
+            <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'var(--gold-grad)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '16px', boxShadow: '0 6px 24px rgba(234,200,71,0.4)' }} className="animate-float">
+              <ShieldAlert size={28} color="#0B0B0F" />
             </div>
             
-            <h1 style={{ color: 'var(--gold)', fontSize: '24px', marginBottom: '8px' }}>NexChat</h1>
+            <h1 className="shimmer-text" style={{ fontSize: '24px', marginBottom: '8px' }}>NexChat</h1>
             <p style={{ color: 'var(--muted)', maxWidth: '400px', fontSize: '13px', lineHeight: '1.5', marginBottom: '24px' }}>
               Combine conexões instantâneas (Omegle) com chat privado (WhatsApp) e moderação robusta (Discord). Configure as opções abaixo e inicie a diversão!
             </p>
