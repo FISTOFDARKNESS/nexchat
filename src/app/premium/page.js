@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Crown, Check, Zap, ToggleLeft, Palette } from 'lucide-react';
+import { PREMIUM_PRICE } from '@/lib/premium';
 
 const THEMES = {
   default: { name: 'Dourado', vars: { '--gold': '#EAC847', '--amber': '#D97706', '--gold-soft': 'rgba(234, 200, 71, 0.12)', '--gold-glow': 'rgba(234, 200, 71, 0.35)' } },
@@ -177,7 +178,7 @@ export default function PremiumPage() {
         ) : (
           <div style={{ background: 'var(--bg-3)', border: '1px solid var(--line)', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-              <span style={{ fontSize: '20px', fontWeight: '700', color: '#fff' }}>R$ 34,99</span>
+              <span style={{ fontSize: '20px', fontWeight: '700', color: '#fff' }}>R$ {PREMIUM_PRICE}</span>
               <span style={{ fontSize: '12px', color: 'var(--muted)' }}>/mês</span>
             </div>
             <ul style={{ fontSize: '12px', color: 'var(--text)', lineHeight: '1.6', paddingLeft: '16px', margin: 0 }}>

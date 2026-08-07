@@ -1,6 +1,6 @@
 import { sql } from '@/lib/db';
 
-export const PREMIUM_PRICE = '34.99';
+export const PREMIUM_PRICE = '38.88';
 export const PREMIUM_CURRENCY = 'BRL';
 export const PREMIUM_DAYS = 30;
 
