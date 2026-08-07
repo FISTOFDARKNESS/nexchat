@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { captureOrder } from '@/lib/paypal';
 import { sql } from '@/lib/db';
 import { getAuthUser } from '@/lib/session';
-import { PREMIUM_PRICE } from '@/lib/premium';
 
 function getHost(req) {
   const host = req.headers.get('x-forwarded-host') || req.headers.get('host');
@@ -29,7 +28,7 @@ export async function GET(req) {
     const orderId = token;
 
     if (status === 'COMPLETED') {
-      const amount = purchase.payments.captures?.[0]?.amount?.value || PREMIUM_PRICE;
+      const amount = purchase.payments.captures?.[0]?.amount?.value || '34.99';
       const currency = purchase.payments.captures?.[0]?.amount?.currency_code || 'BRL';
 
       const updated = await sql(
