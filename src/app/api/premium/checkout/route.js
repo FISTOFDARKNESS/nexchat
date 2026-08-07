@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createOrder, getPremiumPrice } from '@/lib/paypal';
 import { getAuthUser } from '@/lib/session';
 import { sql } from '@/lib/db';
+import { getPriceForCountry } from '@/lib/premium-config';
 
 function getHost(req) {
   const host = req.headers.get('x-forwarded-host') || req.headers.get('host');
@@ -20,13 +21,17 @@ export async function POST(req) {
     const returnUrl = `${origin}/api/premium/capture`;
     const cancelUrl = `${origin}/premium?canceled=1`;
 
-    const order = await createOrder(returnUrl, cancelUrl);
+    const userRow = await sql('SELECT country FROM "User" WHERE id = $1 LIMIT 1', [auth.id]);
+    const userCountry = userRow[0]?.country || null;
+    const { price, currency } = getPriceForCountry(userCountry);
+
+    const order = await createOrder(returnUrl, cancelUrl, price, currency);
 
     await sql(
       `INSERT INTO "PremiumPurchase" ("userId", "paypalOrderId", amount, currency, status)
        VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT ("paypalOrderId") DO NOTHING`,
-      [auth.id, order.id, getPremiumPrice().price, getPremiumPrice().currency, 'PENDING']
+      [auth.id, order.id, price, currency, 'PENDING']
     );
 
     return NextResponse.json({ success: true, orderId: order.id, approveUrl: order.links?.find(l => l.rel === 'approve')?.href });

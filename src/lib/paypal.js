@@ -23,7 +23,7 @@ async function getAccessToken() {
   return data.access_token;
 }
 
-export async function createOrder(returnUrl, cancelUrl) {
+export async function createOrder(returnUrl, cancelUrl, price = PREMIUM_PRICE, currency = PREMIUM_CURRENCY) {
   const token = await getAccessToken();
   const res = await fetch(`${BASE_URL}/v2/checkout/orders`, {
     method: 'POST',
@@ -36,8 +36,8 @@ export async function createOrder(returnUrl, cancelUrl) {
       purchase_units: [
         {
           amount: {
-            currency_code: PREMIUM_CURRENCY,
-            value: PREMIUM_PRICE,
+            currency_code: currency,
+            value: price,
           },
           description: 'NexChat Premium - 30 dias',
         },
