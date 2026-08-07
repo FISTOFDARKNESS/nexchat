@@ -146,11 +146,11 @@ app.prepare().then(() => {
 
   const io = new Server(httpServer, {
     cors: {
-    origin: process.env.CORS_ORIGIN 
-      ? process.env.CORS_ORIGIN.split(',') 
-      : (origin, cb) => cb(new Error("CORS_ORIGIN missing, socket blocked")),
-    methods: ["GET", "POST"]
-  },  }
+      origin: process.env.CORS_ORIGIN 
+        ? process.env.CORS_ORIGIN.split(',') 
+        : (origin, cb) => cb(new Error("CORS_ORIGIN missing, socket blocked")),
+      methods: ["GET", "POST"]
+    }
   });
   // Expõe o Socket.IO para as rotas Next.js (ex.: notificar view-once)
   globalThis.__nexchatIo = io;
