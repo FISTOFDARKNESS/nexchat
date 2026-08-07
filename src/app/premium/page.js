@@ -21,6 +21,15 @@ function applyTheme(themeKey) {
   localStorage.setItem('nexchat_theme', themeKey);
 }
 
+function Stat({ label, value }) {
+  return (
+    <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '10px 6px', textAlign: 'center' }}>
+      <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--gold)' }}>{value}</div>
+      <div style={{ fontSize: '9px', color: 'var(--muted)', marginTop: '2px' }}>{label}</div>
+    </div>
+  );
+}
+
 export default function PremiumPage() {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -28,6 +37,7 @@ export default function PremiumPage() {
   const [chatTheme, setChatTheme] = useState('default');
   const [invisibleMode, setInvisibleMode] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [stats, setStats] = useState(null);
 
   useEffect(() => {
     const token = localStorage.getItem('nexchat_token');
@@ -55,6 +65,18 @@ export default function PremiumPage() {
     };
     loadStatus();
   }, []);
+
+  useEffect(() => {
+    if (!status?.premium) return;
+    fetch('/api/premium/stats', {
+      headers: { Authorization: `Bearer ${localStorage.getItem('nexchat_token')}` }
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && !data.premiumRequired) setStats(data.stats);
+      })
+      .catch(() => {});
+  }, [status?.premium]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -147,7 +169,8 @@ export default function PremiumPage() {
         </p>
 
         {isPremium ? (
-          <div style={{ background: 'var(--bg-3)', border: '1px solid var(--gold)', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
+          <>
+            <div style={{ background: 'var(--bg-3)', border: '1px solid var(--gold)', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
               <Zap size={16} style={{ color: 'var(--gold)' }} />
               <span style={{ fontSize: '16px', fontWeight: '700', color: 'var(--gold)' }}>Plano Ativo</span>
@@ -175,6 +198,27 @@ export default function PremiumPage() {
               </button>
             </div>
           </div>
+
+          {stats && (
+            <div style={{ background: 'var(--bg-3)', border: '1px solid var(--line)', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                <Zap size={16} style={{ color: 'var(--gold)' }} />
+                <span style={{ fontSize: '14px', fontWeight: '700', color: 'var(--gold)' }}>Suas estatísticas</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                <Stat label="Mensagens" value={stats.msgsSent} />
+                <Stat label="Chamadas" value={stats.callsMade} />
+                <Stat label="Min em ligação" value={stats.callMinutes} />
+                <Stat label="Reações" value={stats.reactions} />
+                <Stat label="Likes" value={stats.likes} />
+                <Stat label="Arquivos" value={stats.files} />
+                <Stat label="Amigos" value={stats.friends} />
+                <Stat label="Grupos" value={stats.groups} />
+                <Stat label="Dias premium" value={stats.premiumDays} />
+              </div>
+            </div>
+          )}
+          </>
         ) : (
           <div style={{ background: 'var(--bg-3)', border: '1px solid var(--line)', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>

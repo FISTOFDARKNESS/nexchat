@@ -250,11 +250,13 @@ app.prepare().then(() => {
 
       let premiumFlag = false;
       let bioText = '';
+      let verifiedFlag = false;
       try {
-        const p = await getPool()?.query('SELECT "premiumTier", "premiumExpiresAt", bio FROM "User" WHERE id = $1 LIMIT 1', [userData.userId]);
+        const p = await getPool()?.query('SELECT "premiumTier", "premiumExpiresAt", bio, verified FROM "User" WHERE id = $1 LIMIT 1', [userData.userId]);
         const u = p.rows[0];
         premiumFlag = !!(u?.premiumTier === 'premium' && u?.premiumExpiresAt && new Date(u.premiumExpiresAt) > new Date());
         bioText = u?.bio || '';
+        verifiedFlag = !!u?.verified;
       } catch {}
 
       const newParticipant = {
@@ -264,11 +266,12 @@ app.prepare().then(() => {
         gender: userData.gender || 'other',
         country: userData.country || 'BR',
         bio: bioText,
+        isPremium: premiumFlag,
+        verified: verifiedFlag,
         prefGender: userData.prefGender || 'any',
         prefCountry: userData.prefCountry || 'any',
         mode: userData.mode || 'text',
-        joinedAt: Date.now(),
-        isPremium: premiumFlag
+        joinedAt: Date.now()
       };
 
       if (matchmakingQueue.length > 500) {
@@ -339,7 +342,9 @@ app.prepare().then(() => {
             username: matchedPeer.username,
             gender: matchedPeer.gender,
             country: matchedPeer.country,
-            bio: matchedPeer.bio || ''
+            bio: matchedPeer.bio || '',
+            isPremium: !!matchedPeer.isPremium,
+            verified: !!matchedPeer.verified
           }
         });
 
@@ -351,7 +356,9 @@ app.prepare().then(() => {
             username: newParticipant.username,
             gender: newParticipant.gender,
             country: newParticipant.country,
-            bio: newParticipant.bio || ''
+            bio: newParticipant.bio || '',
+            isPremium: newParticipant.isPremium,
+            verified: newParticipant.verified
           }
         });
 

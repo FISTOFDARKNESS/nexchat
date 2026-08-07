@@ -121,7 +121,7 @@ export async function GET(req) {
       const q = (searchParams.get('q') || '').trim();
       const users = await sql(
         `SELECT u.id, u.username, u."customId", u.email, u.role, u."isGuest", u."isOnline", u.gender, u.country,
-                u."lastSeen", u."lastIp", u."premiumTier", u."premiumExpiresAt", u."createdAt",
+                u."lastSeen", u."lastIp", u."premiumTier", u."premiumExpiresAt", u.verified, u."createdAt",
                 (SELECT COUNT(*) FROM "Warning" w WHERE w."userId" = u.id) AS "warningCount",
                 (SELECT reason FROM "Ban" b WHERE b."userId" = u.id AND (b."expiresAt" IS NULL OR b."expiresAt" > now())
                  ORDER BY b."createdAt" DESC LIMIT 1) AS "activeBanReason"
@@ -334,6 +334,25 @@ export async function POST(req) {
       const updated = await revokePremium(targetUserId);
       await logAdminAction(adminUserId, 'revoke_premium', targetUserId, {});
       return NextResponse.json({ success: true, message: 'Premium revogado', user: updated });
+    }
+
+    // 3.7 VERIFICAR / DESVERIFICAR USUÁRIO
+    if (action === 'toggle_verified') {
+      try {
+        const current = await sql('SELECT "verified" FROM "User" WHERE id = $1 LIMIT 1', [targetUserId]);
+        if (current.length === 0) {
+          return NextResponse.json({ error: 'Usuário não encontrado' }, { status: 404 });
+        }
+        const next = !current[0].verified;
+        const updated = await sql(
+          'UPDATE "User" SET "verified" = $1, "updatedAt" = now() WHERE id = $2 RETURNING *',
+          [next, targetUserId]
+        );
+        await logAdminAction(adminUserId, 'toggle_verified', targetUserId, { verified: next });
+        return NextResponse.json({ success: true, verified: next, message: next ? 'Usuário verificado' : 'Verificação removida', user: updated[0] });
+      } catch (err) {
+        return NextResponse.json({ error: 'Coluna "verified" não existe. Rode a migration-premium2.sql no Supabase.' }, { status: 500 });
+      }
     }
 
     // 4. REMOVER ADVERTÊNCIA

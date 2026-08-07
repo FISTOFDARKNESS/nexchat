@@ -13,7 +13,7 @@ export async function GET(req) {
     let user = null;
     try {
       const rows = await sql(
-        `SELECT id, username, "customId", "avatarUrl", role, "premiumTier", "premiumSince", "premiumExpiresAt", "invisibleMode", "chatTheme", "lastNameChangeAt"
+        `SELECT id, username, "customId", "avatarUrl", role, verified, "premiumTier", "premiumSince", "premiumExpiresAt", "invisibleMode", "chatTheme", "lastNameChangeAt"
          FROM "User" WHERE id = $1 LIMIT 1`,
         [auth.id]
       );

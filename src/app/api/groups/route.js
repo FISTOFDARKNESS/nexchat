@@ -26,7 +26,7 @@ export async function GET(req) {
         return NextResponse.json({ error: 'Grupo não encontrado' }, { status: 404 });
       }
       const members = await sql(
-        `SELECT u.id as "userId", u.username, u."customId", u."avatarUrl", u."isOnline", gm.role
+        `SELECT u.id as "userId", u.username, u."customId", u."avatarUrl", u."isOnline", u."premiumTier", u."premiumExpiresAt", u.verified, gm.role, gm."lastReadAt"
          FROM "GroupMember" gm JOIN "User" u ON u.id = gm."userId"
          WHERE gm."groupId" = $1 ORDER BY gm."joinedAt" ASC`,
         [groupId]

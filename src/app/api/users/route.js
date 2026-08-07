@@ -13,6 +13,27 @@ export async function GET(req) {
     const customId = searchParams.get('customId');
     const username = searchParams.get('username');
     const id = searchParams.get('id');
+    const views = searchParams.get('views');
+
+    if (views === '1') {
+      const owner = await sql(
+        `SELECT "premiumTier", "premiumExpiresAt" FROM "User" WHERE id = $1 LIMIT 1`,
+        [auth.id]
+      );
+      const isPremiumOwner = owner[0]?.premiumTier === 'premium' && owner[0]?.premiumExpiresAt && new Date(owner[0].premiumExpiresAt) > new Date();
+      if (!isPremiumOwner) {
+        return NextResponse.json({ success: true, premiumRequired: true, viewers: [] });
+      }
+      const viewers = await sql(
+        `SELECT u.id as "viewerId", u.username, u."customId", u."avatarUrl", u."premiumTier", u."premiumExpiresAt", u.verified, pv."viewedAt"
+         FROM "ProfileView" pv
+         JOIN "User" u ON u.id = pv."viewerId"
+         WHERE pv."viewedUserId" = $1
+         ORDER BY pv."viewedAt" DESC LIMIT 20`,
+        [auth.id]
+      );
+      return NextResponse.json({ success: true, premiumRequired: false, viewers });
+    }
 
     let targetId = id;
     if (id === 'self') {
@@ -23,7 +44,7 @@ export async function GET(req) {
       return NextResponse.json({ error: 'Informe customId, username ou id' }, { status: 400 });
     }
 
-    const fields = 'id, username, "customId", "avatarUrl", country, gender, "isOnline", bio, status, "lastSeen", "premiumTier", "premiumSince", "premiumExpiresAt", "chatTheme", "invisibleMode", "createdAt"';
+    const fields = 'id, username, "customId", "avatarUrl", country, gender, "isOnline", bio, status, "lastSeen", "premiumTier", "premiumSince", "premiumExpiresAt", verified, "chatTheme", "invisibleMode", "createdAt"';
     let rows = [];
 
     if (customId) {
@@ -36,6 +57,15 @@ export async function GET(req) {
 
     if (rows.length === 0) {
       return NextResponse.json({ error: 'Usuário não encontrado' }, { status: 404 });
+    }
+
+    // Registra a visita (ignora quando é o próprio perfil)
+    if (rows[0].id !== auth.id) {
+      sql(
+        `INSERT INTO "ProfileView" ("viewedUserId", "viewerId") VALUES ($1, $2)
+         ON CONFLICT ("viewedUserId", "viewerId") DO UPDATE SET "viewedAt" = now()`,
+        [rows[0].id, auth.id]
+      ).catch(() => {});
     }
 
     return NextResponse.json({ success: true, user: rows[0] });

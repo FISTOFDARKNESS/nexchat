@@ -233,22 +233,54 @@ function MediaPreview({ msg }) {
   );
 }
 
-function Avatar({ url, name, size = 36, fontSize, border = '1px solid var(--line)', bg = 'var(--bg-3)', color }) {
+function Avatar({ url, name, size = 36, fontSize, border = '1px solid var(--line)', bg = 'var(--bg-3)', color, premium }) {
   const [broken, setBroken] = useState(false);
+  const finalBorder = premium ? `2px solid var(--gold)` : border;
   if (url && !broken) {
     return (
       <img
         src={url}
         alt={name}
         onError={() => setBroken(true)}
-        style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', border, flexShrink: 0 }}
+        style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', border: finalBorder, flexShrink: 0 }}
       />
     );
   }
   return (
-    <div style={{ width: size, height: size, borderRadius: '50%', background: bg, border, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: fontSize || Math.round(size * 0.4), fontWeight: 'bold', color: color || 'var(--gold)', flexShrink: 0 }}>
+    <div style={{ width: size, height: size, borderRadius: '50%', background: bg, border: finalBorder, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: fontSize || Math.round(size * 0.4), fontWeight: 'bold', color: color || 'var(--gold)', flexShrink: 0 }}>
       {name ? name[0].toUpperCase() : '?'}
     </div>
+  );
+}
+
+function isPremiumActive(user) {
+  if (!user) return false;
+  if (user.premiumTier !== 'premium' || !user.premiumExpiresAt) return false;
+  try {
+    return new Date(user.premiumExpiresAt) > new Date();
+  } catch {
+    return false;
+  }
+}
+
+// Badge de coroa dourada para usuários premium
+function PremiumBadge({ user, size = 12 }) {
+  if (!isPremiumActive(user)) return null;
+  return <Crown size={size} fill="var(--gold)" style={{ color: 'var(--gold)', flexShrink: 0 }} title="Premium" />;
+}
+
+// Badge de check azul para usuários verificados
+function VerifiedBadge({ user, size = 12 }) {
+  if (!user || !user.verified) return null;
+  return <ShieldCheck size={size} fill="#3B82F6" style={{ color: '#3B82F6', flexShrink: 0 }} title="Verificado" />;
+}
+
+function UserBadges({ user, size = 12 }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', flexShrink: 0 }}>
+      <PremiumBadge user={user} size={size} />
+      <VerifiedBadge user={user} size={size} />
+    </span>
   );
 }
 
@@ -552,6 +584,8 @@ export default function Home() {
   const [onlineUsers, setOnlineUsers] = useState({}); // userId -> true
   const [localUnread, setLocalUnread] = useState({}); // friendId -> contagem recebida em tempo real
   const [profileUser, setProfileUser] = useState(null);
+  const [profileViews, setProfileViews] = useState(null);
+  const [profileViewsLoading, setProfileViewsLoading] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState('');
   const [typingStatus, setTypingStatus] = useState({ friendId: null, isTyping: false });
@@ -678,6 +712,24 @@ export default function Home() {
         setPremiumStatus(data);
         setChatTheme(data.user?.chatTheme || 'default');
         setInvisibleMode(data.user?.invisibleMode || false);
+        if (data.user) {
+          setUser(prev => {
+            if (!prev) return prev;
+            const merged = { ...prev };
+            let changed = false;
+            for (const k of ['premiumTier', 'premiumExpiresAt', 'verified', 'chatTheme', 'invisibleMode']) {
+              if (data.user[k] !== undefined && data.user[k] !== prev[k]) {
+                merged[k] = data.user[k];
+                changed = true;
+              }
+            }
+            if (changed) {
+              localStorage.setItem('nexchat_user', JSON.stringify(merged));
+              return merged;
+            }
+            return prev;
+          });
+        }
       }
     } catch (e) {
       console.error('[Premium] status error:', e);
@@ -793,12 +845,23 @@ export default function Home() {
     setProfileLoading(true);
     setProfileError('');
     setProfileUser(null);
+    setProfileViews(null);
     try {
       const q = target.customId ? `customId=${encodeURIComponent(target.customId)}` : `id=${target.friendId}`;
       const res = await authedFetch(`/api/users?${q}`);
       const data = await res.json();
       if (data.success) {
         setProfileUser(data.user);
+        if (user && data.user.id === user.id) {
+          setProfileViewsLoading(true);
+          authedFetch('/api/users?views=1')
+            .then(r => r.json())
+            .then(d => {
+              if (d.success) setProfileViews({ premiumRequired: !!d.premiumRequired, viewers: d.viewers || [] });
+            })
+            .catch(() => setProfileViews({ premiumRequired: false, viewers: [] }))
+            .finally(() => setProfileViewsLoading(false));
+        }
       } else {
         setProfileError(data.error || 'Não foi possível carregar o perfil');
       }
@@ -808,7 +871,7 @@ export default function Home() {
     } finally {
       setProfileLoading(false);
     }
-  }, []);
+  }, [user]);
 
   // --- Som sutil de mensagem (WebAudio, sem arquivo) ---
   const playBeep = useCallback(() => {
@@ -3220,7 +3283,7 @@ export default function Home() {
             <div style={{ minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <h3 style={{ fontSize: '15px', color: premiumStatus?.premium ? 'var(--gold)' : 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.username}</h3>
-                {premiumStatus?.premium && <Crown size={12} style={{ color: 'var(--gold)' }} />}
+                <UserBadges user={user} size={12} />
               </div>
               <span style={{ fontSize: '11px', color: 'var(--gold)', fontFamily: 'var(--font-mono)' }}>{user.customId}</span>
               {user.status && <div style={{ fontSize: '10px', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.status}</div>}
@@ -3285,7 +3348,10 @@ export default function Home() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {pendingReceived.map(req => (
                 <div key={req.friendId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '13px' }} className="animate-slide-in">
-                  <span>{req.username}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', minWidth: 0 }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{req.username}</span>
+                    <UserBadges user={req} size={10} />
+                  </span>
                   <div style={{ display: 'flex', gap: '4px' }}>
                     <button onClick={() => respondFriendRequest(req.friendId, true)} style={{ color: 'var(--green)', padding: '6px' }}>
                       <Check size={16} />
@@ -3332,11 +3398,14 @@ export default function Home() {
                 }}
               >
                 <div style={{ position: 'relative', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); openProfile(f); }}>
-                  <Avatar url={f.avatarUrl} name={f.username} size={36} />
+                  <Avatar url={f.avatarUrl} name={f.username} size={36} premium={isPremiumActive(f)} />
                   <div style={{ position: 'absolute', bottom: 0, right: 0, width: '10px', height: '10px', borderRadius: '50%', background: onlineUsers[f.friendId] ? 'var(--green)' : 'var(--bg-3)', border: '2px solid var(--bg-2)' }}></div>
                 </div>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--text)' }}>{f.username}</div>
+                  <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.username}</span>
+                    <UserBadges user={f} size={11} />
+                  </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span style={{ fontSize: '11px', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.customId}</span>
                     {((f.unreadCount || 0) + (localUnread[f.friendId] || 0)) > 0 && (
@@ -3653,6 +3722,12 @@ export default function Home() {
                               Desbanir
                             </button>
                           )}
+                          <button onClick={() => handleAdminAction(u.id, 'toggle_verified')} className="btn-secondary" style={{ padding: '5px 10px', fontSize: '11px', minHeight: '30px', color: u.verified ? '#3B82F6' : 'var(--muted)' }}>
+                            {u.verified ? '✓ Verificado' : 'Verificar'}
+                          </button>
+                          <button onClick={() => handleAdminAction(u.id, 'grant_premium', 30)} className="btn-secondary" style={{ padding: '5px 10px', fontSize: '11px', minHeight: '30px', color: u.premiumTier === 'premium' ? 'var(--gold)' : 'var(--muted)' }}>
+                            <Crown size={11} /> {u.premiumTier === 'premium' ? 'Premium' : '+Premium'}
+                          </button>
                           <button onClick={() => handleAdminKick(u.id, u.username)} className="btn-secondary" style={{ padding: '5px 10px', fontSize: '11px', minHeight: '30px' }}>
                             Kick
                           </button>
@@ -3863,14 +3938,17 @@ export default function Home() {
                   {selectedGroup ? (
                     <Avatar name="Grupo" size={isMobile ? 30 : 36} border="1px solid var(--gold)" bg="var(--gold-soft)" color="var(--gold)" />
                   ) : inRandomChat ? (
-                    <Avatar name="?" size={isMobile ? 30 : 36} border="1px solid var(--gold)" bg="var(--gold-soft)" color="var(--gold)" />
+                    <Avatar name="?" size={isMobile ? 30 : 36} border="1px solid var(--gold)" bg="var(--gold-soft)" color="var(--gold)" premium={isPremiumActive(randomPartner)} />
                   ) : (
-                    <Avatar url={selectedFriend.avatarUrl} name={selectedFriend.username} size={isMobile ? 30 : 36} border="1px solid var(--gold)" bg="var(--gold-soft)" color="var(--gold)" />
+                    <Avatar url={selectedFriend.avatarUrl} name={selectedFriend.username} size={isMobile ? 30 : 36} border="1px solid var(--gold)" bg="var(--gold-soft)" color="var(--gold)" premium={isPremiumActive(selectedFriend)} />
                   )}
                 </div>
                 <div style={{ minWidth: 0 }}>
-                  <h4 style={{ fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {selectedGroup ? selectedGroup.name : inRandomChat ? `Parceiro (${randomPartner?.country})` : selectedFriend.username}
+                  <h4 style={{ fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {selectedGroup ? selectedGroup.name : inRandomChat ? `Parceiro (${randomPartner?.country})` : selectedFriend.username}
+                    </span>
+                    {!selectedGroup && <UserBadges user={inRandomChat ? randomPartner : selectedFriend} size={11} />}
                   </h4>
                   <span style={{ fontSize: '10px', color: 'var(--muted)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {selectedGroup
@@ -4550,10 +4628,42 @@ export default function Home() {
             ) : profileUser && (
               <>
                 <div style={{ position: 'relative', width: '72px', height: '72px', margin: '0 auto 12px' }}>
-                  <Avatar url={profileUser.avatarUrl} name={profileUser.username} size={72} border="1px solid var(--gold)" bg="var(--gold-soft)" color="var(--gold)" />
+                  <Avatar url={profileUser.avatarUrl} name={profileUser.username} size={72} border="1px solid var(--gold)" bg="var(--gold-soft)" color="var(--gold)" premium={isPremiumActive(profileUser)} />
                 </div>
-                <h3 style={{ fontSize: '18px', color: 'var(--text)' }}>{profileUser.username}</h3>
+                <h3 style={{ fontSize: '18px', color: 'var(--text)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
+                  <span>{profileUser.username}</span>
+                  <UserBadges user={profileUser} size={14} />
+                </h3>
                 <p style={{ fontSize: '12px', color: 'var(--gold)', fontFamily: 'var(--font-mono)', marginBottom: '8px' }}>{profileUser.customId}</p>
+                {profileUser.id === user.id && (
+                  <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--line)', textAlign: 'left' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: '600', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Eye size={12} /> QUEM VIU SEU PERFIL
+                    </div>
+                    {profileViewsLoading ? (
+                      <p style={{ fontSize: '11px', color: 'var(--muted)' }}>Carregando...</p>
+                    ) : !profileViews ? null : profileViews.premiumRequired ? (
+                      <button onClick={() => setShowPremiumScreen(true)} className="btn-primary" style={{ width: '100%', justifyContent: 'center', minHeight: '36px', fontSize: '11px' }}>
+                        <Crown size={12} /> Desbloquear com Premium
+                      </button>
+                    ) : profileViews.viewers.length === 0 ? (
+                      <p style={{ fontSize: '11px', color: 'var(--muted)', fontStyle: 'italic' }}>Ninguém visitou seu perfil ainda.</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '150px', overflowY: 'auto' }}>
+                        {profileViews.viewers.map(v => (
+                          <div key={v.viewerId} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer', padding: '2px 0' }} onClick={() => openProfile(v)}>
+                            <Avatar url={v.avatarUrl} name={v.username} size={24} premium={isPremiumActive(v)} />
+                            <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                              {v.username}
+                              <UserBadges user={v} size={9} />
+                            </span>
+                            <span style={{ fontSize: '9px', color: 'var(--muted)', flexShrink: 0 }}>{new Date(v.viewedAt).toLocaleDateString('pt-BR')}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {profileUser.status && (
                   <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>Status: <span style={{ color: 'var(--gold)' }}>{profileUser.status}</span></div>
                 )}
@@ -4755,7 +4865,11 @@ export default function Home() {
                       {m.username[0].toUpperCase()}
                     </div>
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: '13px' }}>{m.username} {isOwner && <span style={{ fontSize: '10px', color: 'var(--gold)' }}>(Dono)</span>}</div>
+                      <div style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.username}</span>
+                        <UserBadges user={m} size={10} />
+                        {isOwner && <span style={{ fontSize: '10px', color: 'var(--gold)' }}>(Dono)</span>}
+                      </div>
                       <div style={{ fontSize: '10px', color: 'var(--muted)' }}>{m.customId}</div>
                     </div>
                     {!isMe && !isOwner && (
