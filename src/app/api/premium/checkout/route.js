@@ -32,6 +32,6 @@ export async function POST(req) {
     return NextResponse.json({ success: true, orderId: order.id, approveUrl: order.links?.find(l => l.rel === 'approve')?.href });
   } catch (error) {
     console.error('Erro na API de Premium checkout:', error);
-    return NextResponse.json({ error: 'Erro interno do servidor: ' + error.message }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === 'production' ? 'Erro interno do servidor' : 'Erro interno do servidor: ' + error.message }, { status: 500 });
   }
 }

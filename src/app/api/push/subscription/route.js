@@ -3,14 +3,23 @@ import { NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/session';
 import webpush from 'web-push';
 
-webpush.setVapidDetails(
-  `mailto:${process.env.SMTP_FROM || 'no-reply@nexchat.app'}`,
-  process.env.VAPID_PUBLIC_KEY,
-  process.env.VAPID_PRIVATE_KEY
-);
+let webpushInitialized = false;
+function initWebPush() {
+  if (webpushInitialized) return;
+  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+    throw new Error('VAPID keys not configured');
+  }
+  webpush.setVapidDetails(
+    `mailto:${process.env.SMTP_FROM || 'no-reply@nexchat.app'}`,
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
+  webpushInitialized = true;
+}
 
 export async function POST(req) {
   try {
+    initWebPush();
     const auth = getAuthUser(req);
     if (!auth) {
       return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });

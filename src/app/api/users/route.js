@@ -14,7 +14,12 @@ export async function GET(req) {
     const username = searchParams.get('username');
     const id = searchParams.get('id');
 
-    if (!customId && !username && !id) {
+    let targetId = id;
+    if (id === 'self') {
+      targetId = auth.id;
+    }
+
+    if (!customId && !username && !targetId) {
       return NextResponse.json({ error: 'Informe customId, username ou id' }, { status: 400 });
     }
 
@@ -26,7 +31,7 @@ export async function GET(req) {
     } else if (username) {
       rows = await sql(`SELECT ${fields} FROM "User" WHERE username = $1 LIMIT 1`, [username]);
     } else {
-      rows = await sql(`SELECT ${fields} FROM "User" WHERE id = $1 LIMIT 1`, [id]);
+      rows = await sql(`SELECT ${fields} FROM "User" WHERE id = $1 LIMIT 1`, [targetId]);
     }
 
     if (rows.length === 0) {
@@ -36,7 +41,7 @@ export async function GET(req) {
     return NextResponse.json({ success: true, user: rows[0] });
   } catch (error) {
     console.error('Erro na API de Usuários (GET):', error);
-    return NextResponse.json({ error: 'Erro interno do servidor: ' + error.message }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === 'production' ? 'Erro interno do servidor' : 'Erro interno do servidor: ' + error.message }, { status: 500 });
   }
 }
 
@@ -105,6 +110,6 @@ export async function POST(req) {
     return NextResponse.json({ success: true, user: result[0] });
   } catch (error) {
     console.error('Erro na API de Usuários (POST):', error);
-    return NextResponse.json({ error: 'Erro interno do servidor: ' + error.message }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === 'production' ? 'Erro interno do servidor' : 'Erro interno do servidor: ' + error.message }, { status: 500 });
   }
 }

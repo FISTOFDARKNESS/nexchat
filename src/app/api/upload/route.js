@@ -142,6 +142,6 @@ export async function POST(req) {
     });
   } catch (error) {
     console.error('Erro na API de Upload:', error);
-    return NextResponse.json({ error: 'Erro interno do servidor: ' + error.message }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === 'production' ? 'Erro interno do servidor' : 'Erro interno do servidor: ' + error.message }, { status: 500 });
   }
 }

@@ -5,8 +5,8 @@ const path = require('path');
 const crypto = require('crypto');
 const next = require('next');
 const { Server } = require('socket.io');
-const { Pool } = require('pg');
 const DOMPurify = require('isomorphic-dompurify');
+const { getPool, sql } = require('./src/lib/db.js');
 
 // Carrega variáveis do .env local (no Render elas vêm do ambiente)
 function loadEnvFile(file) {
@@ -31,22 +31,8 @@ function sanitizeConnectionString(url) {
   return kept.length > 0 ? `${base}?${kept.join('&')}` : base;
 }
 
-let dbPool = null;
-function getDbPool() {
-  if (!dbPool && process.env.DATABASE_URL) {
-    dbPool = new Pool({
-      connectionString: sanitizeConnectionString(process.env.DATABASE_URL),
-      max: 3,
-      connectionTimeoutMillis: 10000,
-      ssl: { rejectUnauthorized: false },
-      statement_timeout: 10000,
-    });
-  }
-  return dbPool;
-}
-
 function setUserOnline(userId, online) {
-  const pool = getDbPool();
+  const pool = getPool();
   if (!pool) return;
   pool.query('UPDATE "User" SET "isOnline" = $2 WHERE id = $1', [userId, online])
     .catch((e) => console.error('Erro ao atualizar isOnline:', e.message));
@@ -61,7 +47,8 @@ const handle = app.getRequestHandler();
 // --- Sessão por cookie HttpOnly (mesmo HMAC do Next) ---
 const SESSION_COOKIE_NAME = 'nexchat_session';
 function getSecret() {
-  return process.env.JWT_SECRET || 'nexchat-dev-secret-change-me';
+  if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET is required.');
+  return process.env.JWT_SECRET;
 }
 function safeEqual(a, b) {
   const ba = Buffer.from(a);
@@ -159,21 +146,23 @@ app.prepare().then(() => {
 
   const io = new Server(httpServer, {
     cors: {
-      origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()) : false,
-      methods: ["GET", "POST"]
-    }
+    origin: process.env.CORS_ORIGIN 
+      ? process.env.CORS_ORIGIN.split(',') 
+      : (origin, cb) => cb(new Error("CORS_ORIGIN missing, socket blocked")),
+    methods: ["GET", "POST"]
+  },  }
   });
   // Expõe o Socket.IO para as rotas Next.js (ex.: notificar view-once)
   globalThis.__nexchatIo = io;
 
   // Fila de Matchmaking em memória
   // Cada item: { socketId, userId, username, gender, country, prefGender, prefCountry, mode }
-  let matchmakingQueue = [];
+  let matchmakingQueue = []; // MAX LIMIT 500
 
   // Quartos ativos do Omegle: roomId -> { peerA: socketId, peerB: socketId }
   let activeRandomRooms = {};
 
-  // Chamadas diretas ativas: callRoomId -> { callerSocketId, callerUserId, calleeUserId }
+  // Chamadas diretas ativas: callRoomId -> { callerSocketId, callerUserId, calleeUserId, createdAt }
   let activeCalls = {};
 
   // Mapeia socketId -> userId (definido via evento 'identify')
@@ -209,6 +198,20 @@ app.prepare().then(() => {
         socketRateLimit.delete(key);
       }
     }
+
+    // Cleanup active rooms that might have leaked (TTL 2 hours)
+    for (const [roomId, room] of Object.entries(activeRandomRooms)) {
+      if (room.createdAt && now - room.createdAt > 7200000) {
+        delete activeRandomRooms[roomId];
+      }
+    }
+
+    // Cleanup active calls that might have leaked (TTL 2 hours)
+    for (const [callRoomId, call] of Object.entries(activeCalls)) {
+      if (call.createdAt && now - call.createdAt > 7200000) {
+        delete activeCalls[callRoomId];
+      }
+    }
   }, 30_000);
 
   io.on('connection', (socket) => {
@@ -227,7 +230,7 @@ app.prepare().then(() => {
       const wasOffline = userSockets[userId].size === 0;
       userSockets[userId].add(socket.id);
       if (wasOffline) {
-        getDbPool()?.query('SELECT "invisibleMode" FROM "User" WHERE id = $1 LIMIT 1', [userId])
+        getPool()?.query('SELECT "invisibleMode" FROM "User" WHERE id = $1 LIMIT 1', [userId])
           .then(res => {
             const invisible = res.rows[0]?.invisibleMode;
             if (!invisible) {
@@ -249,7 +252,7 @@ app.prepare().then(() => {
 
       let premiumFlag = false;
       try {
-        const p = await getDbPool()?.query('SELECT "premiumTier", "premiumExpiresAt" FROM "User" WHERE id = $1 LIMIT 1', [userData.userId]);
+        const p = await getPool()?.query('SELECT "premiumTier", "premiumExpiresAt" FROM "User" WHERE id = $1 LIMIT 1', [userData.userId]);
         const u = p.rows[0];
         premiumFlag = !!(u?.premiumTier === 'premium' && u?.premiumExpiresAt && new Date(u.premiumExpiresAt) > new Date());
       } catch {}
@@ -259,12 +262,20 @@ app.prepare().then(() => {
         userId: userData.userId,
         username: userData.username,
         gender: userData.gender || 'other',
-        country: userData.country || 'unknown',
+        country: userData.country || 'BR',
         prefGender: userData.prefGender || 'any',
         prefCountry: userData.prefCountry || 'any',
         mode: userData.mode || 'text',
-        premium: premiumFlag
+        joinedAt: Date.now(),
+        isPremium: premiumFlag
       };
+
+      if (matchmakingQueue.length > 500) {
+        // Prevent queue from growing unbounded
+        socket.emit('queue_waiting');
+        socket.emit('error', { message: 'Fila muito cheia, tente novamente mais tarde.' });
+        return;
+      }
 
       console.log(`Usuário entrou na fila: ${newParticipant.username} (Gênero: ${newParticipant.gender}, PrefGênero: ${newParticipant.prefGender}, Modo: ${newParticipant.mode})`);
 
@@ -274,7 +285,7 @@ app.prepare().then(() => {
       // Premium tem prioridade: procura primeiro entre outros premium
       for (let i = 0; i < matchmakingQueue.length; i++) {
         const potentialPeer = matchmakingQueue[i];
-        if (!potentialPeer.premium) continue;
+        if (!potentialPeer.isPremium) continue;
         if (potentialPeer.mode !== newParticipant.mode) continue;
         if (newParticipant.prefGender !== 'any' && potentialPeer.gender !== newParticipant.prefGender) continue;
         if (potentialPeer.prefGender !== 'any' && newParticipant.gender !== potentialPeer.prefGender) continue;
@@ -307,7 +318,8 @@ app.prepare().then(() => {
           peerA: socket.id,
           peerB: matchedPeer.socketId,
           peerAData: newParticipant,
-          peerBData: matchedPeer
+          peerBData: matchedPeer,
+          createdAt: Date.now()
         };
 
         // Associa os dois à sala no socket
@@ -491,7 +503,7 @@ app.prepare().then(() => {
       socket.to(roomId).emit('receive_group_msg', message);
       // Entrega direta aos membros online que estão fora da sala do grupo
       const members = io.sockets.adapter.rooms.get(roomId);
-      getDbPool()?.query('SELECT "userId" FROM "GroupMember" WHERE "groupId" = $1', [groupId])
+      getPool()?.query('SELECT "userId" FROM "GroupMember" WHERE "groupId" = $1', [groupId])
         .then(res => {
           const memberIds = new Set(res.rows.map(r => r.userId));
           for (const [id, sock] of io.sockets.sockets) {
@@ -765,13 +777,13 @@ app.prepare().then(() => {
         userSockets[disconnectedUserId].delete(socket.id);
         if (userSockets[disconnectedUserId].size === 0) {
           delete userSockets[disconnectedUserId];
-          getDbPool()?.query('SELECT "invisibleMode" FROM "User" WHERE id = $1 LIMIT 1', [disconnectedUserId])
+          getPool()?.query('SELECT "invisibleMode" FROM "User" WHERE id = $1 LIMIT 1', [disconnectedUserId])
             .then(res => {
               const invisible = res.rows[0]?.invisibleMode;
               if (!invisible) {
                 io.emit('user_offline', { userId: disconnectedUserId });
                 setUserOnline(disconnectedUserId, false);
-                getDbPool()?.query('UPDATE "User" SET "lastSeen" = now() WHERE id = $1', [disconnectedUserId])
+                getPool()?.query('UPDATE "User" SET "lastSeen" = now() WHERE id = $1', [disconnectedUserId])
                   .catch(() => {});
               }
             })
@@ -814,7 +826,7 @@ app.prepare().then(() => {
   // Limpeza periódica: arquivos view-once/24h expirados e registros órfãos (físico sumiu)
   const UPLOADS_DIR = path.join(__dirname, 'uploads');
   async function cleanupExpiredFiles() {
-    const pool = getDbPool();
+    const pool = getPool();
     if (!pool) return;
     const diskPath = (storagePath) => {
       const parts = String(storagePath || '').replace(/\\/g, '/').split('/').filter(Boolean);
@@ -860,7 +872,7 @@ app.prepare().then(() => {
   setTimeout(cleanupExpiredFiles, 60 * 1000);
 
   async function cleanupExpiredPremium() {
-    const pool = getDbPool();
+    const pool = getPool();
     if (!pool) return;
     try {
       const res = await pool.query(

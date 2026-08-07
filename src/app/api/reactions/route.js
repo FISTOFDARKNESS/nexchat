@@ -35,7 +35,7 @@ export async function GET(req) {
     return NextResponse.json({ success: true, reactions: Object.values(grouped) });
   } catch (error) {
     console.error('Erro na API de Reactions (GET):', error);
-    return NextResponse.json({ error: 'Erro interno do servidor: ' + error.message }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === 'production' ? 'Erro interno do servidor' : 'Erro interno do servidor: ' + error.message }, { status: 500 });
   }
 }
 
@@ -68,7 +68,7 @@ export async function POST(req) {
     return NextResponse.json({ success: true, reaction: result[0] });
   } catch (error) {
     console.error('Erro na API de Reactions (POST):', error);
-    return NextResponse.json({ error: 'Erro interno do servidor: ' + error.message }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === 'production' ? 'Erro interno do servidor' : 'Erro interno do servidor: ' + error.message }, { status: 500 });
   }
 }
 
@@ -95,6 +95,6 @@ export async function DELETE(req) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Erro na API de Reactions (DELETE):', error);
-    return NextResponse.json({ error: 'Erro interno do servidor: ' + error.message }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === 'production' ? 'Erro interno do servidor' : 'Erro interno do servidor: ' + error.message }, { status: 500 });
   }
 }

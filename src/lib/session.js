@@ -3,9 +3,9 @@ import crypto from 'crypto';
 function getSecret() {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
-    console.warn('JWT_SECRET não configurado; usando segredo de desenvolvimento.');
+    throw new Error('JWT_SECRET is required.');
   }
-  return secret || 'nexchat-dev-secret-change-me';
+  return secret;
 }
 
 function safeEqual(a, b) {
@@ -97,6 +97,15 @@ export function clearSessionCookie(res) {
 
 const pendingOAuthStates = new Map();
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [state, expiresAt] of pendingOAuthStates.entries()) {
+    if (now > expiresAt) {
+      pendingOAuthStates.delete(state);
+    }
+  }
+}, 5 * 60 * 1000); // Clean up every 5 minutes
 
 export function createOAuthState() {
   const state = crypto.randomBytes(24).toString('hex');

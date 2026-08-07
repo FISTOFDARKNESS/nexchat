@@ -143,19 +143,7 @@ export async function GET(req) {
 
     // 4. Redirecionar de volta para a Home com o cookie de sessão já definido
     //    (o token NUNCA vai na URL — só no cookie HttpOnly)
-    const userJson = JSON.stringify({
-      id: user.id,
-      username: user.username,
-      customId: user.customId,
-      email: user.email,
-      role: user.role,
-      isGuest: user.isGuest,
-      gender: user.gender,
-      country: user.country,
-      avatarUrl: user.avatarUrl
-    });
-
-    const res = NextResponse.redirect(`${origin}/?user_data=${encodeURIComponent(userJson)}`);
+    const res = NextResponse.redirect(`${origin}/?login=success`);
     return setSessionCookie(res, user);
 
   } catch (error) {

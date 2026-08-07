@@ -1,12 +1,6 @@
 import "./globals.css";
 
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((err) => {
-      console.error('Erro ao registrar service worker:', err);
-    });
-  });
-}
+// Service Worker registration moved to page.js to run on client
 
 export const metadata = {
   title: "NexChat - Amigos, Matchmaking e Videochamadas",

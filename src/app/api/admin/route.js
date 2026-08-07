@@ -229,7 +229,7 @@ export async function GET(req) {
 
   } catch (error) {
     console.error('Erro na API Admin (GET):', error);
-    return NextResponse.json({ error: 'Erro interno do servidor: ' + error.message }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === 'production' ? 'Erro interno do servidor' : 'Erro interno do servidor: ' + error.message }, { status: 500 });
   }
 }
 
@@ -448,6 +448,6 @@ export async function POST(req) {
 
   } catch (error) {
     console.error('Erro na API Admin (POST):', error);
-    return NextResponse.json({ error: 'Erro interno do servidor: ' + error.message }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === 'production' ? 'Erro interno do servidor' : 'Erro interno do servidor: ' + error.message }, { status: 500 });
   }
 }

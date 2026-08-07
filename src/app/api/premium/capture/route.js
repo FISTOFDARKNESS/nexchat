@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { captureOrder } from '@/lib/paypal';
 import { sql } from '@/lib/db';
+import { getAuthUser } from '@/lib/session';
 
 function getHost(req) {
   const host = req.headers.get('x-forwarded-host') || req.headers.get('host');
@@ -11,6 +12,10 @@ function getHost(req) {
 
 export async function GET(req) {
   try {
+    const auth = getAuthUser(req);
+    if (!auth) {
+      return NextResponse.redirect(new URL('/premium?error=unauthorized', getHost(req)));
+    }
     const url = new URL(req.url);
     const token = url.searchParams.get('token');
     if (!token) {

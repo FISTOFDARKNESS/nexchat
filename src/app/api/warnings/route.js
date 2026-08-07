@@ -5,7 +5,11 @@ import { getAuthUser } from '@/lib/session';
 export async function GET(req) {
   try {
     const auth = getAuthUser(req);
-    if (!auth || auth.role !== 'admin') {
+    if (!auth) {
+      return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+    }
+    const userRows = await sql(`SELECT role FROM "User" WHERE id = $1 LIMIT 1`, [auth.id]);
+    if (userRows.length === 0 || userRows[0].role !== 'admin') {
       return NextResponse.json({ error: 'Não autenticado ou sem permissão' }, { status: 403 });
     }
     const { searchParams } = new URL(req.url);
@@ -32,14 +36,18 @@ export async function GET(req) {
     return NextResponse.json({ success: true, warnings, bans });
   } catch (error) {
     console.error('Erro na API de Warnings (GET):', error);
-    return NextResponse.json({ error: 'Erro interno do servidor: ' + error.message }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === 'production' ? 'Erro interno do servidor' : 'Erro interno do servidor: ' + error.message }, { status: 500 });
   }
 }
 
 export async function POST(req) {
   try {
     const auth = getAuthUser(req);
-    if (!auth || auth.role !== 'admin') {
+    if (!auth) {
+      return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+    }
+    const userRows = await sql(`SELECT role FROM "User" WHERE id = $1 LIMIT 1`, [auth.id]);
+    if (userRows.length === 0 || userRows[0].role !== 'admin') {
       return NextResponse.json({ error: 'Não autenticado ou sem permissão' }, { status: 403 });
     }
     const body = await req.json();
@@ -69,6 +77,6 @@ export async function POST(req) {
     return NextResponse.json({ error: 'Ação inválida' }, { status: 400 });
   } catch (error) {
     console.error('Erro na API de Warnings (POST):', error);
-    return NextResponse.json({ error: 'Erro interno do servidor: ' + error.message }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === 'production' ? 'Erro interno do servidor' : 'Erro interno do servidor: ' + error.message }, { status: 500 });
   }
 }

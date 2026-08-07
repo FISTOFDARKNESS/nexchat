@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+const { Pool } = require('pg');
 
 let pool = null;
 
@@ -16,20 +16,19 @@ function getPool() {
       console.warn('DATABASE_URL env var is not configured yet. Database queries will fail.');
       return null;
     }
-    // Remove params sslmode/ssl da URL, pois o pg os mescla por cima das opções do Pool
     const connectionString = sanitizeConnectionString(rawUrl);
     pool = new Pool({
       connectionString,
-      max: 10, // número máximo de clientes no pool
+      max: 10,
       connectionTimeoutMillis: 15000,
-      ssl: { rejectUnauthorized: false }, // Supabase exige SSL
+      ssl: { rejectUnauthorized: false },
       statement_timeout: 15000,
     });
   }
   return pool;
 }
 
-export async function sql(sqlStr, params = []) {
+async function sql(sqlStr, params = []) {
   const currentPool = getPool();
   if (!currentPool) {
     throw new Error('Database pool not initialized. Check your DATABASE_URL environment variable.');
@@ -45,3 +44,5 @@ export async function sql(sqlStr, params = []) {
     client.release();
   }
 }
+
+module.exports = { sql, getPool };

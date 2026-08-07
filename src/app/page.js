@@ -300,29 +300,35 @@ export default function Home() {
     };
     checkMobile();
     window.addEventListener('resize', checkMobile);
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch((err) => {
+        console.error('Erro ao registrar service worker:', err);
+      });
+    }
+
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
   // --- Efeito: Carregar Sessão Local ou Parâmetros da URL ---
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
       const query = new URLSearchParams(window.location.search);
-      const userDataParam = query.get('user_data');
+      const loginSuccess = query.get('login') === 'success';
       const authErrorParam = query.get('auth_error');
-      const tokenParam = query.get('token');
 
-      if (tokenParam) {
-        localStorage.setItem('nexchat_token', tokenParam);
-      }
-
-      if (userDataParam) {
+      if (loginSuccess) {
         try {
-          const parsedUser = JSON.parse(decodeURIComponent(userDataParam));
-          setUser(parsedUser);
-          localStorage.setItem('nexchat_user', JSON.stringify(parsedUser));
-          addToast(`Conectado com sucesso! Bem-vindo, ${parsedUser.username}!`, 'success');
+          const res = await authedFetch('/api/users?id=self');
+          const data = await res.json();
+          if (data.success) {
+            const parsedUser = data.user;
+            setUser(parsedUser);
+            localStorage.setItem('nexchat_user', JSON.stringify(parsedUser));
+            addToast(`Conectado com sucesso! Bem-vindo, ${parsedUser.username}!`, 'success');
+          }
         } catch (err) {
-          console.error('Erro ao ler dados da URL:', err);
+          console.error('Erro ao ler dados do self:', err);
         }
         window.history.replaceState({}, document.title, window.location.pathname);
       } else if (authErrorParam) {
@@ -724,7 +730,7 @@ export default function Home() {
         a.play().catch(e => console.log('Autoplay remote audio error:', e));
       }
     });
-  });
+  }, [remoteStreams]);
 
   // Carregar dados de amigos via API
   const loadFriends = useCallback(async () => {
@@ -794,22 +800,8 @@ export default function Home() {
 
   // --- Som sutil de mensagem (WebAudio, sem arquivo) ---
   const playBeep = useCallback(() => {
-    try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      const ctx = new AudioCtx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = 880;
-      gain.gain.setValueAtTime(0.1, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.3);
-      setTimeout(() => ctx.close(), 600);
-    } catch (e) { /* áudio indisponível */ }
-  }, []);
+    playNotificationSound();
+  }, [playNotificationSound]);
 
   // --- Badge de não lidas no título da aba ---
   useEffect(() => {
