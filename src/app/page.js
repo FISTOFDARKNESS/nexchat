@@ -8,9 +8,11 @@ import {
   Moon, CheckSquare, Settings, AlertCircle, VolumeX, Mic, MicOff, VideoOff, Play,
   Pause,
   Plus, CheckCircle, Clock, Info, ChevronLeft, SkipForward, CheckCheck, FileText, Paperclip, Eye,
-  BarChart3, Megaphone, Search, History, Crown, ToggleLeft, Palette, Bell, ShieldCheck, UserCheck
+  BarChart3, Megaphone, Search, History, Crown, ToggleLeft, Palette, Bell, ShieldCheck, UserCheck,
+  Timer, Languages, Sticker
 } from 'lucide-react';
 import { PREMIUM_PRICE, formatPremiumPrice } from '@/lib/premium-config';
+import { STICKERS, getSticker } from '@/lib/stickers';
 
 let socket;
 
@@ -21,6 +23,30 @@ function formatDuration(secs) {
   const m = Math.floor(secs / 60);
   const s = secs % 60;
   return `(${m}:${String(s).padStart(2, '0')})`;
+}
+
+// Contagem regressiva de mensagens temporárias (autodestrutivas)
+function ExpiryBadge({ expiresAt, onExpired }) {
+  const [left, setLeft] = useState(Math.max(0, new Date(expiresAt) - Date.now()));
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const rem = Math.max(0, new Date(expiresAt) - Date.now());
+      setLeft(rem);
+      if (rem <= 0) {
+        clearInterval(iv);
+        onExpired && onExpired();
+      }
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [expiresAt, onExpired]);
+  if (left <= 0) return null;
+  const mins = Math.floor(left / 60000);
+  const secs = Math.floor((left % 60000) / 1000);
+  return (
+    <span style={{ fontSize: '9px', color: 'var(--amber)', display: 'inline-flex', alignItems: 'center', gap: '3px', fontWeight: '600' }}>
+      <Timer size={10} /> {mins > 0 ? `${mins}m ${secs}s` : `${secs}s`}
+    </span>
+  );
 }
 
 function formatFileSize(bytes) {
@@ -449,6 +475,23 @@ export default function Home() {
   const [invisibleMode, setInvisibleMode] = useState(false);
   const [buying, setBuying] = useState(false);
   const [pendingPremiumCheck, setPendingPremiumCheck] = useState(false);
+
+  // --- Fase 2: autodestrutivas, stickers, tradução ---
+  const [expiresIn, setExpiresIn] = useState(null);
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
+  const [translations, setTranslations] = useState({});
+  const [autoTranslate, setAutoTranslate] = useState(() => {
+    try {
+      return typeof window !== 'undefined' && localStorage.getItem('nexchat_autotranslate') === '1';
+    } catch (e) { return false; }
+  });
+  const autoTranslateRef = useRef(false);
+  const translateMessageRef = useRef(null);
+  const markGroupMessagesReadRef = useRef(null);
+
+  useEffect(() => {
+    autoTranslateRef.current = autoTranslate;
+  }, [autoTranslate]);
 
   // --- Cookie Consent ---
   const [cookieConsent, setCookieConsent] = useState(false);
@@ -1444,6 +1487,9 @@ export default function Home() {
       const activeFriend = selectedFriendRef.current;
       if (activeFriend && (msg.senderId === activeFriend.friendId || msg.receiverId === activeFriend.friendId)) {
         setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+        if (autoTranslateRef.current && msg.senderId === activeFriend.friendId && msg.content && msg.type !== 'sticker') {
+          translateMessageRef.current?.(msg);
+        }
         if (msg.senderId === activeFriend.friendId) {
           markMessagesRead(activeFriend.friendId);
         }
@@ -1467,12 +1513,36 @@ export default function Home() {
       const activeGroup = selectedGroupRef.current;
       if (activeGroup && msg.groupId === activeGroup.id) {
         setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+        if (autoTranslateRef.current && msg.senderId !== user.id && msg.content && msg.type !== 'sticker') {
+          translateMessageRef.current?.(msg);
+        }
+        markGroupMessagesReadRef.current?.(msg.groupId);
       } else {
         addToast('Nova mensagem em grupo!', 'info');
         playBeep();
         setGroupsList(prev => prev.map(g => g.id === msg.groupId ? { ...g, unreadCount: (g.unreadCount || 0) + 1 } : g));
         loadGroups();
       }
+    });
+
+    socket.on('group_msg_read_by', ({ userId, username, messageIds, readAt }) => {
+      setMessages(prev => prev.map(m => {
+        if (!messageIds.includes(m.id)) return m;
+        const already = (m.readBy || []).some(r => r.userId === userId);
+        if (already) return m;
+        return { ...m, readBy: [...(m.readBy || []), { userId, username: username || userId, readAt }] };
+      }));
+    });
+
+    socket.on('friend_msg_expired', ({ messageId }) => {
+      setMessages(prev => prev.filter(m => m.id !== messageId));
+      addToast('Uma mensagem temporária expirou.', 'info');
+    });
+
+    socket.on('group_msg_expired', ({ messageIds }) => {
+      if (!Array.isArray(messageIds) || messageIds.length === 0) return;
+      setMessages(prev => prev.filter(m => !messageIds.includes(m.id)));
+      addToast('Uma mensagem temporária do grupo expirou.', 'info');
     });
 
     // Mídia de visualização única foi aberta: carrega e some da conversa após 15s
@@ -1858,7 +1928,8 @@ export default function Home() {
             action: 'send',
             receiverId: selectedFriend.friendId,
             content,
-            parentMessageId: payload.parentMessageId
+            parentMessageId: payload.parentMessageId,
+            expiresInSeconds: expiresIn || undefined
           })
         });
         const data = await res.json();
@@ -2613,6 +2684,7 @@ export default function Home() {
         if (data.messages?.length) {
           setMessages(data.messages);
         }
+        markGroupMessagesRead(groupId);
       }
     } catch (err) {
       console.error('Erro ao abrir grupo:', err);
@@ -2711,7 +2783,7 @@ export default function Home() {
       const res = await authedFetch('/api/groups', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'send', groupId: selectedGroup.id, content })
+        body: JSON.stringify({ action: 'send', groupId: selectedGroup.id, content, expiresInSeconds: expiresIn || undefined })
       });
       const data = await res.json();
       if (data.success && data.message) {
@@ -2724,6 +2796,129 @@ export default function Home() {
       console.error(err);
     }
   };
+
+  // --- Alternar autodestruição da próxima mensagem (premium) ---
+  const toggleExpiry = () => {
+    if (!premiumStatus?.premium) {
+      setShowPremiumScreen(true);
+      return;
+    }
+    if (expiresIn) {
+      setExpiresIn(null);
+    } else {
+      const choice = prompt('Quando a mensagem deve se autodestruir?\n1 - 5 minutos\n2 - 1 hora\n3 - 24 horas');
+      const map = { '1': 300, '2': 3600, '3': 86400 };
+      setExpiresIn(map[choice] || 300);
+    }
+  };
+
+  // --- Enviar sticker (premium) ---
+  const sendSticker = async (sticker) => {
+    if (!premiumStatus?.premium) {
+      setShowPremiumScreen(true);
+      return;
+    }
+    setShowStickerPicker(false);
+    if (inRandomChat && randomRoomId) {
+      const payload = {
+        id: `temp_${getTs()}`,
+        content: sticker.id,
+        type: 'sticker',
+        senderId: user.id,
+        senderName: user.username,
+        likedBy: [],
+        createdAt: new Date().toISOString()
+      };
+      setMessages(prev => [...prev, payload]);
+      socket.emit('send_random_msg', { roomId: randomRoomId, message: payload });
+      return;
+    }
+    try {
+      const url = selectedGroup ? '/api/groups' : '/api/messages';
+      const body = selectedGroup
+        ? { action: 'send', groupId: selectedGroup.id, content: sticker.id, type: 'sticker' }
+        : { action: 'send', receiverId: selectedFriend?.friendId, content: sticker.id, type: 'sticker' };
+      if (!body.receiverId && !body.groupId) return;
+      const res = await authedFetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (data.success && data.message) {
+        if (selectedGroup) {
+          socket.emit('send_group_msg', { groupId: selectedGroup.id, message: data.message });
+        } else {
+          const sortedIds = [user.id, selectedFriend.friendId].sort();
+          const chatRoomId = `friend_chat_${sortedIds[0]}_${sortedIds[1]}`;
+          socket.emit('send_friend_msg', { roomId: chatRoomId, message: data.message });
+        }
+        setMessages(prev => [...prev, data.message]);
+      } else {
+        addToast(data.error || 'Erro ao enviar sticker.', 'warning');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // --- Traduzir mensagem (premium) ---
+  const translateMessage = useCallback(async (msg) => {
+    if (!premiumStatus?.premium) {
+      setShowPremiumScreen(true);
+      return;
+    }
+    if (!msg?.content) return;
+    try {
+      const res = await authedFetch('/api/premium/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: msg.content })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTranslations(prev => prev[msg.id] ? prev : { ...prev, [msg.id]: { text: data.translated, lang: data.detected } });
+      } else {
+        addToast(data.error || 'Não foi possível traduzir.', 'warning');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }, [premiumStatus]);
+
+  useEffect(() => {
+    translateMessageRef.current = translateMessage;
+  }, [translateMessage]);
+
+  // --- Marcar mensagens do grupo como lidas (recibos "quem leu") ---
+  const markGroupMessagesRead = useCallback(async (groupId) => {    if (!user || !groupId) return;
+    try {
+      const res = await authedFetch('/api/groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'read', groupId })
+      });
+      const data = await res.json();
+      if (data.success && data.readMessageIds?.length) {
+        const readAt = new Date().toISOString();
+        setMessages(prev => prev.map(m =>
+          data.readMessageIds.includes(m.id) ? { ...m, readBy: [...(m.readBy || []), { userId: user.id, username: user.username, readAt }] } : m
+        ));
+        socket.emit('group_msgs_read', { groupId, userId: user.id, username: user.username, messageIds: data.readMessageIds, readAt });
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }, [user, socket]);
+
+  useEffect(() => {
+    markGroupMessagesReadRef.current = markGroupMessagesRead;
+  }, [markGroupMessagesRead]);
+
+  // --- Remover mensagem expirada localmente (timer chegou a zero) ---
+  const handleExpiredMsg = useCallback((msgId) => {
+    setMessages(prev => prev.filter(m => m.id !== msgId));
+  }, []);
 
   const createGroup = async (e) => {
     e.preventDefault();
@@ -4181,6 +4376,28 @@ export default function Home() {
                   );
                 }
 
+                // Sticker (exclusivo premium): emoji grande sem balão
+                if (msg.type === 'sticker') {
+                  const sticker = getSticker(msg.content);
+                  return (
+                    <div key={msg.id} style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', display: 'flex', flexDirection: 'column', gap: '2px', alignItems: isMe ? 'flex-end' : 'flex-start', maxWidth: '80%' }} className="animate-slide-in">
+                      {msg.expiresAt && <ExpiryBadge expiresAt={msg.expiresAt} onExpired={() => handleExpiredMsg(msg.id)} />}
+                      <div title={sticker?.label || 'Sticker'} style={{ fontSize: '44px', lineHeight: 1, padding: '6px 10px', background: 'var(--bg-3)', border: '1px solid var(--line)', borderRadius: '14px', display: 'inline-block', position: 'relative' }}>
+                        {sticker ? sticker.emoji : msg.content}
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '9px', color: 'var(--muted)', padding: '0 4px' }}>
+                        <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        {isMe && selectedFriend && !selectedGroup && (
+                          msg.readAt ? <CheckCheck size={11} style={{ color: 'var(--gold)' }} title="Visto" /> : <Check size={11} style={{ color: 'var(--muted)' }} title="Enviado" />
+                        )}
+                        {isMe && selectedFriend && !inRandomChat && (
+                          <button onClick={() => handleDeleteMessage(msg.id)} style={{ color: 'var(--red)', border: 'none', background: 'none' }}>Apagar</button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
+
                 // Registro de chamada: chip centralizado (fica salvo no chat)
                 if (msg.type === 'call') {
                   return (
@@ -4271,6 +4488,21 @@ export default function Home() {
                             )}
                           </p>
                         )}
+                        {msg.expiresAt && (
+                          <div style={{ marginTop: '2px' }}>
+                            <ExpiryBadge expiresAt={msg.expiresAt} onExpired={() => handleExpiredMsg(msg.id)} />
+                          </div>
+                        )}
+                        {translations[msg.id] && msg.content && (
+                          <div style={{ borderTop: '1px dashed var(--line)', marginTop: '4px', paddingTop: '4px' }}>
+                            <p style={{ fontSize: '12px', lineHeight: '1.4', wordBreak: 'break-word', color: 'var(--gold)' }}>
+                              {translations[msg.id].text}
+                            </p>
+                            <span style={{ fontSize: '8px', color: 'var(--muted)' }}>
+                              Traduzido de {translations[msg.id].lang} · <button onClick={() => setTranslations(prev => { const n = { ...prev }; delete n[msg.id]; return n; })} style={{ color: 'var(--muted)', border: 'none', background: 'none', textDecoration: 'underline', fontSize: '8px' }}>ocultar</button>
+                            </span>
+                          </div>
+                        )}
                         
                          {(msg.likedBy || []).length > 0 && (
                            <div style={{ 
@@ -4347,6 +4579,16 @@ export default function Home() {
                           ? <CheckCheck size={11} style={{ color: 'var(--gold)' }} title="Visto" />
                           : <Check size={11} style={{ color: 'var(--muted)' }} title="Enviado" />
                       )}
+                      {isMe && selectedGroup && premiumStatus?.premium && (msg.readBy || []).length > 0 && (
+                        <span title={(msg.readBy || []).map(r => r.username).join(', ')}>
+                          Visto por {(msg.readBy || []).slice(0, 3).map(r => r.username || r.userId.slice(0, 5)).join(', ')}{(msg.readBy || []).length > 3 ? ` +${(msg.readBy || []).length - 3}` : ''}
+                        </span>
+                      )}
+                      {premiumStatus?.premium && !isMe && msg.content && msg.type !== 'sticker' && (
+                        <button onClick={() => translateMessage(msg)} style={{ color: translations[msg.id] ? 'var(--gold)' : 'var(--muted)', border: 'none', background: 'none', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                          <Languages size={10} /> {translations[msg.id] ? 'Traduzido' : 'Traduzir'}
+                        </button>
+                      )}
                       <button onClick={() => setReplyingTo(msg)} style={{ color: 'var(--muted)', border: 'none', background: 'none' }}>Resp</button>
                       <button onClick={() => handleLikeMessage(msg.id)} style={{ color: liked ? 'var(--gold)' : 'var(--muted)', border: 'none', background: 'none' }}>
                         {liked ? 'Descurtir' : 'Curtir'}
@@ -4388,7 +4630,7 @@ export default function Home() {
             </div>
 
             {/* Input Bar */}
-            <form onSubmit={(e) => { e.preventDefault(); if (isRecordingVoice) { sendVoiceMessage(); } else if (attachment) { sendMediaMessage(); } else if (selectedGroup) { sendGroupMessage(e); } else { handleSendMessage(e); } }} style={{ padding: isMobile ? '8px' : '12px', background: 'var(--bg-2)', borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0 }}>
+            <form onSubmit={(e) => { e.preventDefault(); if (isRecordingVoice) { sendVoiceMessage(); } else if (attachment) { sendMediaMessage(); } else if (selectedGroup) { sendGroupMessage(e); } else { handleSendMessage(e); } }} style={{ padding: isMobile ? '8px' : '12px', background: 'var(--bg-2)', borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0, position: 'relative' }}>
               {replyingTo && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-3)', borderLeft: '3px solid var(--gold)', padding: '6px 12px', borderRadius: '4px' }}>
                   <div style={{ fontSize: '11px', minWidth: 0 }}>
@@ -4453,6 +4695,68 @@ export default function Home() {
                 <button type="button" onClick={() => setShowEmojiPicker(v => !v)} title="Emojis" style={{ color: showEmojiPicker ? 'var(--gold)' : 'var(--muted)', padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px' }}>
                   <Smile size={16} />
                 </button>
+                <button
+                  type="button"
+                  onClick={toggleExpiry}
+                  title={expiresIn ? `Autodestruição em ${expiresIn === 300 ? '5 min' : expiresIn === 3600 ? '1 h' : '24 h'}` : 'Mensagem temporária (premium)'}
+                  style={{ color: expiresIn ? 'var(--gold)' : 'var(--muted)', padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px', position: 'relative' }}
+                >
+                  <Timer size={16} />
+                  {expiresIn && (
+                    <span style={{ position: 'absolute', top: '2px', right: '2px', background: 'var(--gold)', color: '#000', borderRadius: '50%', width: '14px', height: '14px', fontSize: '8px', fontWeight: '700', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {expiresIn === 300 ? '5' : expiresIn === 3600 ? '1h' : '24'}
+                    </span>
+                  )}
+                </button>
+                <button type="button" onClick={() => setShowStickerPicker(v => !v)} title="Stickers" style={{ color: showStickerPicker ? 'var(--gold)' : 'var(--muted)', padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px' }}>
+                  <Sticker size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!premiumStatus?.premium) {
+                      setShowPremiumScreen(true);
+                      return;
+                    }
+                    const next = !autoTranslate;
+                    setAutoTranslate(next);
+                    try { localStorage.setItem('nexchat_autotranslate', next ? '1' : '0'); } catch (e) {}
+                  }}
+                  title="Tradução automática (premium)"
+                  style={{ color: autoTranslate ? 'var(--gold)' : 'var(--muted)', padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px', position: 'relative' }}
+                >
+                  <Languages size={16} />
+                  {autoTranslate && (
+                    <span style={{ position: 'absolute', top: '2px', right: '2px', background: 'var(--gold)', borderRadius: '50%', width: '8px', height: '8px' }} />
+                  )}
+                </button>
+                {showStickerPicker && (
+                  <div style={{ position: 'absolute', bottom: '54px', left: '0', background: 'var(--bg-3)', border: '1px solid var(--gold)', borderRadius: '10px', padding: '8px', zIndex: 30, boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '10px', color: 'var(--gold)', fontWeight: '600' }}>STICKERS</span>
+                      <span style={{ fontSize: '9px', color: 'var(--muted)' }}>{premiumStatus?.premium ? 'pacote completo' : 'exclusivos premium'}</span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px', maxHeight: '160px', overflowY: 'auto' }}>
+                      {STICKERS.map(s => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => sendSticker(s)}
+                          title={s.label}
+                          style={{ position: 'relative', fontSize: '26px', padding: '6px', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: '8px', cursor: 'pointer' }}
+                          className="friend-item-hover"
+                        >
+                          {s.emoji}
+                          {s.premium && !premiumStatus?.premium && (
+                            <span style={{ position: 'absolute', top: '2px', right: '2px', background: 'var(--gold)', borderRadius: '50%', width: '12px', height: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <Crown size={7} color="#000" />
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <input 
                   type="text" 
                   placeholder={isRecordingVoice ? `Gravando... ${voiceDuration}s` : attachment ? 'Legenda (opcional)...' : "Escreva..."} 

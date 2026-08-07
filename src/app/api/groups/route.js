@@ -2,6 +2,9 @@ import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import DOMPurify from 'isomorphic-dompurify';
 import { getAuthUser } from '@/lib/session';
+import { getSticker } from '@/lib/stickers';
+
+export const EXPIRY_OPTIONS = [300, 3600, 86400];
 
 export async function GET(req) {
   try {
@@ -32,7 +35,7 @@ export async function GET(req) {
         [groupId]
       );
       const messages = await sql(
-        `SELECT gm.id, gm."groupId", gm."senderId", gm.content, gm."editedAt", gm."createdAt", gm."attachmentId", gm."pinnedAt",
+        `SELECT gm.id, gm."groupId", gm."senderId", gm.content, gm.type, gm."editedAt", gm."createdAt", gm."attachmentId", gm."pinnedAt", gm."expiresAt",
                 f.mime as "attachMime", f.filename as "attachFilename", f.size as "attachSize", f."viewOnce" as "attachViewOnce",
                 u.username as "senderName",
                 COALESCE(
@@ -40,11 +43,19 @@ export async function GET(req) {
                    FROM "MessageLike" ml
                    WHERE ml."messageId" = gm.id),
                   '[]'::json
-                ) as "likedBy"
+                ) as "likedBy",
+                COALESCE(
+                  (SELECT json_agg(json_build_object('userId', r."userId", 'username', ru.username, 'readAt', r."readAt"))
+                   FROM "GroupMessageRead" r
+                   JOIN "User" ru ON ru.id = r."userId"
+                   WHERE r."messageId" = gm.id),
+                  '[]'::json
+                ) as "readBy"
          FROM "GroupMessage" gm
          LEFT JOIN "File" f ON f.id = gm."attachmentId"
          JOIN "User" u ON u.id = gm."senderId"
-         WHERE gm."groupId" = $1 ORDER BY gm."createdAt" ASC`,
+         WHERE gm."groupId" = $1 AND (gm."expiresAt" IS NULL OR gm."expiresAt" > now())
+         ORDER BY gm."createdAt" ASC`,
         [groupId]
       );
       return NextResponse.json({ success: true, group: groups[0], members, messages });
@@ -232,11 +243,12 @@ export async function POST(req) {
 
     // 5. ENVIAR MENSAGEM NO GRUPO
     if (action === 'send') {
-      const { groupId, content, attachmentId } = body;
+      const { groupId, content, attachmentId, type, expiresInSeconds } = body;
       if (!groupId || (!content && !attachmentId)) {
         return NextResponse.json({ error: 'groupId e content/attachment são obrigatórios' }, { status: 400 });
       }
-      const cleanContent = content ? DOMPurify.sanitize(content.trim()) : '';
+      const msgType = type === 'sticker' ? 'sticker' : 'text';
+      let cleanContent = content ? DOMPurify.sanitize(content.trim()) : '';
       if (!cleanContent && !attachmentId) {
         return NextResponse.json({ error: 'Mensagem vazia após sanitização' }, { status: 400 });
       }
@@ -247,6 +259,31 @@ export async function POST(req) {
       if (membership.length === 0) {
         return NextResponse.json({ error: 'Você não é membro deste grupo' }, { status: 403 });
       }
+      const premium = await sql(
+        `SELECT "premiumTier", "premiumExpiresAt" FROM "User" WHERE id = $1 LIMIT 1`,
+        [userId]
+      );
+      const isPremiumUser = premium[0]?.premiumTier === 'premium' && premium[0]?.premiumExpiresAt && new Date(premium[0].premiumExpiresAt) > new Date();
+
+      if (msgType === 'sticker') {
+        if (!getSticker(cleanContent)) {
+          return NextResponse.json({ error: 'Sticker inválido' }, { status: 400 });
+        }
+        if (!isPremiumUser) {
+          return NextResponse.json({ error: 'Stickers exclusivos para premium. Assine o plano.' }, { status: 403 });
+        }
+      }
+      let expiresAt = null;
+      if (expiresInSeconds) {
+        const secs = Number(expiresInSeconds);
+        if (!EXPIRY_OPTIONS.includes(secs)) {
+          return NextResponse.json({ error: 'Tempo de expiração inválido' }, { status: 400 });
+        }
+        if (!isPremiumUser) {
+          return NextResponse.json({ error: 'Mensagens temporárias são exclusivas do premium. Assine o plano.' }, { status: 403 });
+        }
+        expiresAt = new Date(Date.now() + secs * 1000).toISOString();
+      }
       let attachId = null;
       if (attachmentId) {
         const f = await sql('SELECT * FROM "File" WHERE id = $1 AND "ownerId" = $2 LIMIT 1', [attachmentId, userId]);
@@ -256,8 +293,9 @@ export async function POST(req) {
         attachId = attachmentId;
       }
       const result = await sql(
-        `INSERT INTO "GroupMessage" ("groupId", "senderId", content, "attachmentId") VALUES ($1, $2, $3, $4) RETURNING *`,
-        [groupId, userId, cleanContent, attachId]
+        `INSERT INTO "GroupMessage" ("groupId", "senderId", content, "attachmentId", "expiresAt", type)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+        [groupId, userId, cleanContent, attachId, expiresAt, msgType]
       );
       const msg = result[0];
       const sender = await sql(
@@ -289,7 +327,16 @@ export async function POST(req) {
         `UPDATE "GroupMember" SET "lastReadAt" = now() WHERE "groupId" = $1 AND "userId" = $2`,
         [groupId, userId]
       );
-      return NextResponse.json({ success: true });
+      // Registra quais mensagens o usuário viu (para "quem leu no grupo")
+      const read = await sql(
+        `INSERT INTO "GroupMessageRead" ("messageId", "userId")
+         SELECT id, $2 FROM "GroupMessage"
+         WHERE "groupId" = $1 AND "senderId" <> $2
+         ON CONFLICT DO NOTHING
+         RETURNING "messageId"`,
+        [groupId, userId]
+      );
+      return NextResponse.json({ success: true, readMessageIds: read.map(r => r.messageId) });
     }
 
     return NextResponse.json({ error: 'Ação inválida' }, { status: 400 });

@@ -2,6 +2,9 @@ import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import DOMPurify from 'isomorphic-dompurify';
 import { getAuthUser } from '@/lib/session';
+import { getSticker } from '@/lib/stickers';
+
+export const EXPIRY_OPTIONS = [300, 3600, 86400];
 
 export async function GET(req) {
   try {
@@ -35,6 +38,7 @@ export async function GET(req) {
       LEFT JOIN "File" f ON f.id = m."attachmentId"
       LEFT JOIN "DirectMessage" pm ON pm.id = m."parentMessageId"
       WHERE ((m."senderId" = $1 AND m."receiverId" = $2) OR (m."senderId" = $2 AND m."receiverId" = $1))
+        AND (m."expiresAt" IS NULL OR m."expiresAt" > now())
     `;
     const params = [userId, friendId];
     if (search && search.trim()) {
@@ -61,14 +65,14 @@ export async function POST(req) {
     const userId = auth.id;
 
     const body = await req.json();
-    const { action, receiverId, content, parentMessageId, messageId, attachmentId, type } = body;
+    const { action, receiverId, content, parentMessageId, messageId, attachmentId, type, expiresInSeconds } = body;
 
     // 1. SALVAR NOVA MENSAGEM (SEND)
     if (action === 'send') {
       if (!receiverId || (!content && !attachmentId)) {
         return NextResponse.json({ error: 'receiverId e content/attachment são obrigatórios' }, { status: 400 });
       }
-      const msgType = type === 'voice' ? 'voice' : 'text';
+      const msgType = type === 'voice' ? 'voice' : type === 'sticker' ? 'sticker' : 'text';
       // Bloqueado (qualquer direção) não pode enviar mensagens
       const blocked = await sql(
         `SELECT 1 FROM "Block"
@@ -77,6 +81,37 @@ export async function POST(req) {
       );
       if (blocked.length > 0) {
         return NextResponse.json({ error: 'Não é possível enviar mensagem para este usuário' }, { status: 403 });
+      }
+
+      // Limite de caracteres por plano
+      const premium = await sql(
+        `SELECT "premiumTier", "premiumExpiresAt" FROM "User" WHERE id = $1 LIMIT 1`,
+        [userId]
+      );
+      const isPremiumUser = premium[0]?.premiumTier === 'premium' && premium[0]?.premiumExpiresAt && new Date(premium[0].premiumExpiresAt) > new Date();
+
+      // Sticker: conteúdo deve ser um id válido de sticker (exclusivo premium)
+      let cleanContent = content ? DOMPurify.sanitize(content.trim()) : '';
+      if (msgType === 'sticker') {
+        if (!getSticker(cleanContent)) {
+          return NextResponse.json({ error: 'Sticker inválido' }, { status: 400 });
+        }
+        if (!isPremiumUser) {
+          return NextResponse.json({ error: 'Stickers exclusivos para premium. Assine o plano.' }, { status: 403 });
+        }
+      }
+
+      // Autodestruição: apenas premium pode definir expiração
+      let expiresAt = null;
+      if (expiresInSeconds) {
+        const secs = Number(expiresInSeconds);
+        if (!EXPIRY_OPTIONS.includes(secs)) {
+          return NextResponse.json({ error: 'Tempo de expiração inválido' }, { status: 400 });
+        }
+        if (!isPremiumUser) {
+          return NextResponse.json({ error: 'Mensagens temporárias são exclusivas do premium. Assine o plano.' }, { status: 403 });
+        }
+        expiresAt = new Date(Date.now() + secs * 1000).toISOString();
       }
 
       // Valida o anexo (se houver): deve pertencer ao remetente
@@ -90,17 +125,13 @@ export async function POST(req) {
       }
 
       // Sanitizar conteúdo da mensagem contra XSS (legenda)
-      const cleanContent = content ? DOMPurify.sanitize(content.trim()) : '';
+      if (msgType !== 'sticker') {
+        cleanContent = DOMPurify.sanitize(content.trim());
+      }
       if (!cleanContent && !attachId) {
         return NextResponse.json({ error: 'Mensagem vazia após sanitização' }, { status: 400 });
       }
 
-      // Limite de caracteres por plano
-      const premium = await sql(
-        `SELECT "premiumTier", "premiumExpiresAt" FROM "User" WHERE id = $1 LIMIT 1`,
-        [userId]
-      );
-      const isPremiumUser = premium[0]?.premiumTier === 'premium' && premium[0]?.premiumExpiresAt && new Date(premium[0].premiumExpiresAt) > new Date();
       const maxLen = isPremiumUser ? 5000 : 1000;
       if (cleanContent.length > maxLen) {
         return NextResponse.json({ error: `Mensagem muito longa (máx ${maxLen} caracteres)` }, { status: 413 });
@@ -108,10 +139,10 @@ export async function POST(req) {
 
       // Insere no banco
       const result = await sql(
-        `INSERT INTO "DirectMessage" ("senderId", "receiverId", content, type, "parentMessageId", "attachmentId")
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO "DirectMessage" ("senderId", "receiverId", content, type, "parentMessageId", "attachmentId", "expiresAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING *`,
-        [userId, receiverId, cleanContent, msgType, parentMessageId || null, attachId]
+        [userId, receiverId, cleanContent, msgType, parentMessageId || null, attachId, expiresAt]
       );
 
       const msg = result[0];

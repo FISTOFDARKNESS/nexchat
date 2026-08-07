@@ -26,3 +26,15 @@ ALTER TABLE "DirectMessage" ADD COLUMN IF NOT EXISTS "translatedContent" TEXT;
 ALTER TABLE "DirectMessage" ADD COLUMN IF NOT EXISTS "translatedLang" TEXT;
 ALTER TABLE "GroupMessage" ADD COLUMN IF NOT EXISTS "translatedContent" TEXT;
 ALTER TABLE "GroupMessage" ADD COLUMN IF NOT EXISTS "translatedLang" TEXT;
+
+-- 5. Stickers (mensagens com tipo próprio em grupos)
+ALTER TABLE "GroupMessage" ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'text';
+
+-- 6. Quem leu no grupo (recibos de leitura por mensagem)
+CREATE TABLE IF NOT EXISTS "GroupMessageRead" (
+  "messageId" UUID NOT NULL REFERENCES "GroupMessage"(id) ON DELETE CASCADE,
+  "userId" UUID NOT NULL REFERENCES "User"(id) ON DELETE CASCADE,
+  "readAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY ("messageId", "userId")
+);
+CREATE INDEX IF NOT EXISTS idx_gmr_group ON "GroupMessageRead"("userId");

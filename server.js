@@ -561,6 +561,14 @@ app.prepare().then(() => {
       socket.to(roomId).emit('group_msg_unpinned', { messageId });
     });
 
+    socket.on('group_msgs_read', (data) => {
+      // data: { groupId, userId, username, messageIds, readAt }
+      const { groupId, userId, username, messageIds, readAt } = data;
+      if (!groupId || !userId || !Array.isArray(messageIds) || messageIds.length === 0) return;
+      const roomId = `group_chat_${groupId}`;
+      socket.to(roomId).emit('group_msg_read_by', { userId, username: username || '', messageIds, readAt: readAt || new Date().toISOString() });
+    });
+
     socket.on('send_friend_msg', (data) => {
       if (!checkSocketRateLimit(socket.id)) {
         socket.emit('rate_limited');
@@ -923,4 +931,47 @@ app.prepare().then(() => {
   }
   setInterval(cleanupExpiredPremium, 60 * 60 * 1000);
   setTimeout(cleanupExpiredPremium, 60 * 1000);
+
+  // Limpeza de mensagens autodestrutivas (premium): apaga no banco e avisa os clientes
+  async function cleanupExpiredMessages() {
+    const pool = getPool();
+    if (!pool) return;
+    try {
+      const direct = await pool.query(
+        `DELETE FROM "DirectMessage"
+         WHERE "expiresAt" IS NOT NULL AND "expiresAt" < now()
+         RETURNING id, "senderId", "receiverId"`
+      );
+      for (const row of direct.rows) {
+        const sortedIds = [row.senderId, row.receiverId].sort();
+        const roomId = `friend_chat_${sortedIds[0]}_${sortedIds[1]}`;
+        io.to(roomId).emit('friend_msg_expired', { messageId: row.id });
+        for (const [id, sock] of io.sockets.sockets) {
+          const uid = socketUsers[id];
+          if ((uid === row.senderId || uid === row.receiverId) && !io.sockets.adapter.rooms.get(roomId)?.has(id)) {
+            sock.emit('friend_msg_expired', { messageId: row.id });
+          }
+        }
+      }
+      if (direct.rows.length > 0) console.log(`Mensagens diretas expiradas: ${direct.rows.length} removidas`);
+
+      const groups = await pool.query(
+        `DELETE FROM "GroupMessage"
+         WHERE "expiresAt" IS NOT NULL AND "expiresAt" < now()
+         RETURNING id, "groupId"`
+      );
+      const byGroup = {};
+      for (const row of groups.rows) {
+        (byGroup[row.groupId] = byGroup[row.groupId] || []).push(row.id);
+      }
+      for (const [groupId, ids] of Object.entries(byGroup)) {
+        io.to(`group_chat_${groupId}`).emit('group_msg_expired', { messageIds: ids });
+      }
+      if (groups.rows.length > 0) console.log(`Mensagens de grupo expiradas: ${groups.rows.length} removidas`);
+    } catch (e) {
+      console.error('Erro na limpeza de mensagens expiradas:', e.message);
+    }
+  }
+  setInterval(cleanupExpiredMessages, 5 * 60 * 1000);
+  setTimeout(cleanupExpiredMessages, 30 * 1000);
 });

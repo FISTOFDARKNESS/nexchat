@@ -234,6 +234,11 @@ export default function PremiumPage() {
               <li>Chamadas em grupo com até 8 pessoas</li>
               <li>Mudar nome a qualquer momento</li>
               <li>Modo invisível + temas personalizados</li>
+              <li>Quem viu meu perfil + quem leu no grupo</li>
+              <li>Mensagens que se autodestroem (5min/1h/24h)</li>
+              <li>Tradução automática de mensagens</li>
+              <li>Stickers exclusivos</li>
+              <li>Badge de coroa + selo de verificado</li>
               <li>Exportar histórico do chat (JSON)</li>
             </ul>
           </div>
