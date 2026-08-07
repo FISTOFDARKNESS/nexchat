@@ -111,6 +111,46 @@ function isBlocked(userIdA, userIdB) {
   ).then(r => r.rows.length > 0).catch(() => false);
 }
 
+// Push notifications
+let webpush = null;
+function getWebPush() {
+  if (!webpush && process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+    try {
+      webpush = require('web-push');
+      webpush.setVapidDetails(
+        `mailto:${process.env.SMTP_FROM || 'no-reply@nexchat.app'}`,
+        process.env.VAPID_PUBLIC_KEY,
+        process.env.VAPID_PRIVATE_KEY
+      );
+    } catch (e) {
+      console.error('Erro ao inicializar web-push:', e);
+    }
+  }
+  return webpush;
+}
+
+async function sendPushNotificationToUser(userId, payload) {
+  const wp = getWebPush();
+  const pool = getDbPool();
+  if (!wp || !pool) return;
+
+  try {
+    const res = await pool.query(`SELECT endpoint, p256dh, auth FROM "PushSubscription" WHERE "userId" = $1`, [userId]);
+    for (const sub of res.rows) {
+      try {
+        await wp.sendNotification(sub, JSON.stringify(payload));
+      } catch (err) {
+        console.error('Erro ao enviar push para subscription:', err.message);
+        if (err.statusCode === 410 || err.statusCode === 404) {
+          await pool.query(`DELETE FROM "PushSubscription" WHERE endpoint = $1`, [sub.endpoint]);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Erro ao buscar subscriptions:', err);
+  }
+}
+
 app.prepare().then(() => {
   const httpServer = createServer((req, res) => {
     const parsedUrl = parse(req.url, true);
@@ -592,11 +632,29 @@ app.prepare().then(() => {
         };
 
         // Envia a chamada apenas para o socket do amigo
+        let sent = false;
         for (const [id, sock] of io.sockets.sockets) {
           if (socketUsers[id] === friendUserId) {
             sock.emit(`incoming_call_to_${friendUserId}`, { callerData, callerId: callerData.id, type, callRoomId, isGroup: false });
+            sent = true;
             break;
           }
+        }
+
+        if (!sent) {
+          sendPushNotificationToUser(friendUserId, {
+            title: `Chamada de ${callerData.username}`,
+            body: type === 'video' ? 'Você recebeu uma chamada de vídeo' : 'Você recebeu uma chamada de áudio',
+            icon: callerData.avatarUrl || '/icon.svg',
+            badge: '/icon.svg',
+            tag: `call-${callRoomId}`,
+            data: {
+              url: '/',
+              targetId: callerId,
+              callRoomId,
+              isNewSession: true
+            }
+          });
         }
       });
     });
@@ -613,11 +671,28 @@ app.prepare().then(() => {
       isBlocked(myUserId, friendUserId).then((blocked) => {
         if (blocked) return;
         call.participants.push(friendUserId);
+        let sent = false;
         for (const [id, sock] of io.sockets.sockets) {
           if (socketUsers[id] === friendUserId) {
             sock.emit(`incoming_call_to_${friendUserId}`, { callerData, callerId: myUserId, type, callRoomId, isGroup: true });
+            sent = true;
             break;
           }
+        }
+        if (!sent) {
+          sendPushNotificationToUser(friendUserId, {
+            title: `Chamada de ${callerData?.username || 'Alguém'}`,
+            body: 'Você foi adicionado a uma chamada em grupo',
+            icon: callerData?.avatarUrl || '/icon.svg',
+            badge: '/icon.svg',
+            tag: `call-${callRoomId}`,
+            data: {
+              url: '/',
+              targetId: myUserId,
+              callRoomId,
+              isNewSession: true
+            }
+          });
         }
       });
     });

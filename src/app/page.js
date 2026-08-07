@@ -8,7 +8,7 @@ import {
   Moon, CheckSquare, Settings, AlertCircle, VolumeX, Mic, MicOff, VideoOff, Play,
   Pause,
   Plus, CheckCircle, Clock, Info, ChevronLeft, SkipForward, CheckCheck, FileText, Paperclip, Eye,
-  BarChart3, Megaphone, Search, History, Crown, ToggleLeft, Palette
+  BarChart3, Megaphone, Search, History, Crown, ToggleLeft, Palette, Bell, ShieldCheck
 } from 'lucide-react';
 
 let socket;
@@ -31,6 +31,22 @@ function formatFileSize(bytes) {
 
 function getTs() {
   return Date.now();
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
 }
 
 const THEMES = {
@@ -395,27 +411,117 @@ export default function Home() {
   const [buying, setBuying] = useState(false);
   const [pendingPremiumCheck, setPendingPremiumCheck] = useState(false);
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('premium') === 'success') {
-      window.history.replaceState({}, document.title, window.location.pathname);
-      setPendingPremiumCheck(true);
-      loadPremiumStatus();
+  // --- Cookie Consent ---
+  const [cookieConsent, setCookieConsent] = useState(() => {
+    try {
+      return localStorage.getItem('nexchat_cookie_consent') === 'accepted';
+    } catch {
+      return false;
     }
+  });
+
+  const acceptCookies = () => {
+    localStorage.setItem('nexchat_cookie_consent', 'accepted');
+    setCookieConsent(true);
+  };
+
+  // --- Push Notifications ---
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
+
+  const requestPushPermission = async () => {
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+      addToast('Notificações não suportadas neste navegador.', 'error');
+      return;
+    }
+    setPushLoading(true);
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        addToast('Permissão de notificação negada.', 'error');
+        setPushLoading(false);
+        return;
+      }
+
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '')
+      });
+
+      const userAgent = navigator.userAgent;
+      const res = await authedFetch('/api/push/subscription', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          endpoint: subscription.endpoint,
+          p256dh: arrayBufferToBase64(subscription.getKey('p256dh')),
+          auth: arrayBufferToBase64(subscription.getKey('auth')),
+          userAgent
+        })
+      });
+
+      if (res.ok) {
+        setPushEnabled(true);
+        addToast('Notificações ativadas!', 'success');
+      } else {
+        addToast('Erro ao ativar notificações.', 'error');
+      }
+    } catch (err) {
+      console.error('Erro ao solicitar notificação:', err);
+      addToast('Erro ao ativar notificações.', 'error');
+    } finally {
+      setPushLoading(false);
+    }
+  };
+
+  const disablePush = async () => {
+    setPushLoading(true);
+    try {
+      const res = await authedFetch('/api/push/subscription', { method: 'DELETE' });
+      if (res.ok) {
+        setPushEnabled(false);
+        addToast('Notificações desativadas.', 'info');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setPushLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const checkPush = async () => {
+      if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        if (subscription) {
+          setPushEnabled(true);
+        }
+      } catch (err) {
+        console.error('Erro ao verificar push:', err);
+      }
+    };
+    checkPush();
   }, []);
 
   useEffect(() => {
-    if (pendingPremiumCheck && premiumStatus?.premium) {
-      setShowPremiumScreen(true);
-      setPendingPremiumCheck(false);
+    if (!cookieConsent) return;
+    try {
+      const existing = document.cookie.split(';').find(c => c.trim().startsWith('nexchat_cookie_consent='));
+      if (!existing) {
+        document.cookie = 'nexchat_cookie_consent=accepted; path=/; max-age=' + (60 * 60 * 24 * 365);
+      }
+    } catch (e) {
+      console.error('Erro ao setar cookie:', e);
     }
-  }, [pendingPremiumCheck, premiumStatus]);
+  }, [cookieConsent]);
 
   useEffect(() => {
     const saved = localStorage.getItem('nexchat_theme');
     if (saved && THEMES[saved]) {
       applyTheme(saved);
-      setChatTheme(saved);
     }
   }, []);
 
@@ -4370,6 +4476,9 @@ export default function Home() {
                         <button className="btn-secondary" onClick={openEditProfile} style={{ width: '100%', justifyContent: 'center', minHeight: '40px' }}>
                           <Settings size={14} /> Editar perfil
                         </button>
+                        <button onClick={pushEnabled ? disablePush : requestPushPermission} disabled={pushLoading} className="btn-secondary" style={{ width: '100%', justifyContent: 'center', minHeight: '40px', marginTop: '8px', background: pushEnabled ? 'var(--green-soft, rgba(74,222,128,0.1))' : 'var(--bg-3)', border: pushEnabled ? '1px solid var(--green)' : '1px solid var(--line)', color: pushEnabled ? 'var(--green)' : 'var(--text)' }}>
+                          {pushLoading ? '...' : pushEnabled ? <><Bell size={14} /> Notificações ativadas</> : <><Bell size={14} /> Ativar notificações</>}
+                        </button>
                       </>
                     ) : (
                       <>
@@ -4657,6 +4766,18 @@ export default function Home() {
               Fechar
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Cookie Consent Banner */}
+      {!cookieConsent && (
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 1500, background: 'var(--bg-2)', borderTop: '1px solid var(--line)', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '12px', color: 'var(--muted)', lineHeight: '1.4' }}>
+            Utilizamos cookies para melhorar sua experiência. Ao continuar, você concorda com nossa política de privacidade.
+          </span>
+          <button onClick={acceptCookies} className="btn-primary" style={{ whiteSpace: 'nowrap', minHeight: '36px', fontSize: '12px', padding: '8px 16px' }}>
+            Aceitar
+          </button>
         </div>
       )}
 
