@@ -10,7 +10,7 @@ import {
   Plus, CheckCircle, Clock, Info, ChevronLeft, SkipForward, CheckCheck, FileText, Paperclip, Eye,
   BarChart3, Megaphone, Search, History, Crown, ToggleLeft, Palette, Bell, ShieldCheck
 } from 'lucide-react';
-import { PREMIUM_PRICE, formatPremiumPrice } from '@/lib/premium';
+import { PREMIUM_PRICE, formatPremiumPrice } from '@/lib/premium-config';
 
 let socket;
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Crown, Check, Zap, ToggleLeft, Palette } from 'lucide-react';
-import { PREMIUM_PRICE, formatPremiumPrice } from '@/lib/premium';
+import { PREMIUM_PRICE, formatPremiumPrice } from '@/lib/premium-config';
 
 const THEMES = {
   default: { name: 'Dourado', vars: { '--gold': '#EAC847', '--amber': '#D97706', '--gold-soft': 'rgba(234, 200, 71, 0.12)', '--gold-glow': 'rgba(234, 200, 71, 0.35)' } },

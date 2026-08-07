@@ -1,8 +1,7 @@
 import { sql } from '@/lib/db';
+import { PREMIUM_PRICE, PREMIUM_CURRENCY, PREMIUM_DAYS } from './premium-config';
 
-export const PREMIUM_PRICE = process.env.PREMIUM_PRICE || '34.99';
-export const PREMIUM_CURRENCY = process.env.PREMIUM_CURRENCY || 'BRL';
-export const PREMIUM_DAYS = 30;
+export { PREMIUM_PRICE, PREMIUM_CURRENCY, PREMIUM_DAYS };
 
 export function formatPremiumPrice() {
   const price = String(PREMIUM_PRICE);
