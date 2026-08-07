@@ -1003,11 +1003,13 @@ export default function Home() {
 
   // --- Inicializar Câmera e Áudio ---
   const requestMediaPermissions = async (wantsMedia = true) => {
+    let mediaOk = false;
     if (wantsMedia) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         localStreamRef.current = stream;
         setUseMedia(true);
+        mediaOk = true;
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
           localVideoRef.current.play().catch(e => console.log(e));
@@ -1023,11 +1025,33 @@ export default function Home() {
     setConsentGranted(true);
     setCookieConsent(true);
     try {
-      document.cookie = 'nexchat_consent=accepted; path=/; SameSite=Lax';
+      document.cookie = `nexchat_consent=${mediaOk ? 'accepted_media' : 'accepted_text'}; path=/; SameSite=Lax`;
     } catch (e) {
       console.warn('Não foi possível salvar consentimento da sessão:', e);
     }
   };
+
+  // Reativa câmera/microfone quando a tela de consentimento é pulada (mesma sessão do cookie)
+  useEffect(() => {
+    let cancelled = false;
+    try {
+      const choseMedia = document.cookie.split(';').some(c => c.trim().startsWith('nexchat_consent=accepted_media'));
+      if (!choseMedia || localStreamRef.current) return;
+      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        .then(stream => {
+          if (cancelled) {
+            stream.getTracks().forEach(t => t.stop());
+            return;
+          }
+          localStreamRef.current = stream;
+          setUseMedia(true);
+        })
+        .catch(() => {});
+    } catch (e) {
+      console.warn('Não foi possível reativar câmera:', e);
+    }
+    return () => { cancelled = true; };
+  }, []);
 
   // Garante que o stream local exista antes de criar o PeerConnection
   const ensureLocalStream = useCallback(async () => {
