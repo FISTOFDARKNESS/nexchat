@@ -8,7 +8,7 @@ import {
   Moon, CheckSquare, Settings, AlertCircle, VolumeX, Mic, MicOff, VideoOff, Play,
   Pause,
   Plus, CheckCircle, Clock, Info, ChevronLeft, SkipForward, CheckCheck, FileText, Paperclip, Eye,
-  BarChart3, Megaphone, Search, History, Crown, ToggleLeft, Palette, Bell, ShieldCheck
+  BarChart3, Megaphone, Search, History, Crown, ToggleLeft, Palette, Bell, ShieldCheck, UserCheck
 } from 'lucide-react';
 import { PREMIUM_PRICE, formatPremiumPrice } from '@/lib/premium-config';
 
@@ -1207,7 +1207,18 @@ export default function Home() {
       setRandomRoomId(roomId);
       setRandomPartner(partner);
       setRandomFriendRequestStatus('none');
-      setMessages([]);
+      if (matchModeRef.current === 'text') {
+        setMessages([{
+          id: `sys_${getTs()}`,
+          type: 'system',
+          content: partner.bio || '',
+          partnerName: partner.username,
+          partnerCountry: partner.country,
+          createdAt: new Date().toISOString()
+        }]);
+      } else {
+        setMessages([]);
+      }
       setReplyingTo(null);
       setActiveView('chat');
       addToast(`Conectado com um parceiro de ${partner.country}!`, 'success');
@@ -2555,9 +2566,9 @@ export default function Home() {
 
   const sendGroupMessage = async (e) => {
     e.preventDefault();
-    if (!selectedGroup || !groupInput.trim()) return;
-    const content = groupInput.trim();
-    setGroupInput('');
+    if (!selectedGroup || !messageText.trim()) return;
+    const content = messageText.trim();
+    setMessageText('');
     try {
       const res = await authedFetch('/api/groups', {
         method: 'POST',
@@ -3997,6 +4008,25 @@ export default function Home() {
               {(chatSearch ? searchResults : messages).map((msg) => {
                 const isMe = msg.senderId === user.id;
                 const liked = (msg.likedBy || []).includes(user.id);
+
+                // Bolha de sistema: bio do parceiro ao encontrar conexão
+                if (msg.type === 'system') {
+                  return (
+                    <div key={msg.id} style={{ alignSelf: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', maxWidth: '85%' }} className="animate-slide-in">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--bg-2)', border: '1px solid var(--gold)', borderRadius: '12px', padding: '8px 14px', color: 'var(--muted)', fontSize: '11px' }}>
+                        <UserCheck size={12} style={{ color: 'var(--gold)' }} />
+                        <span style={{ fontWeight: '700', color: 'var(--gold)' }}>{msg.partnerName}</span>
+                        {msg.partnerCountry && <span>({msg.partnerCountry})</span>}
+                      </div>
+                      <div style={{ background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: '10px', padding: '8px 14px', color: 'var(--muted)', fontSize: '12px', textAlign: 'center', lineHeight: '1.5' }}>
+                        {msg.content ? msg.content : 'Este parceiro ainda não definiu uma bio.'}
+                      </div>
+                      <span style={{ fontSize: '9px', color: 'var(--muted)' }}>
+                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  );
+                }
 
                 // Registro de chamada: chip centralizado (fica salvo no chat)
                 if (msg.type === 'call') {

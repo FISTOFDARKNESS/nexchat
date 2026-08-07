@@ -249,10 +249,12 @@ app.prepare().then(() => {
       matchmakingQueue = matchmakingQueue.filter(item => item.socketId !== socket.id);
 
       let premiumFlag = false;
+      let bioText = '';
       try {
-        const p = await getPool()?.query('SELECT "premiumTier", "premiumExpiresAt" FROM "User" WHERE id = $1 LIMIT 1', [userData.userId]);
+        const p = await getPool()?.query('SELECT "premiumTier", "premiumExpiresAt", bio FROM "User" WHERE id = $1 LIMIT 1', [userData.userId]);
         const u = p.rows[0];
         premiumFlag = !!(u?.premiumTier === 'premium' && u?.premiumExpiresAt && new Date(u.premiumExpiresAt) > new Date());
+        bioText = u?.bio || '';
       } catch {}
 
       const newParticipant = {
@@ -261,6 +263,7 @@ app.prepare().then(() => {
         username: userData.username,
         gender: userData.gender || 'other',
         country: userData.country || 'BR',
+        bio: bioText,
         prefGender: userData.prefGender || 'any',
         prefCountry: userData.prefCountry || 'any',
         mode: userData.mode || 'text',
@@ -335,7 +338,8 @@ app.prepare().then(() => {
             userId: matchedPeer.userId,
             username: matchedPeer.username,
             gender: matchedPeer.gender,
-            country: matchedPeer.country
+            country: matchedPeer.country,
+            bio: matchedPeer.bio || ''
           }
         });
 
@@ -346,7 +350,8 @@ app.prepare().then(() => {
             userId: newParticipant.userId,
             username: newParticipant.username,
             gender: newParticipant.gender,
-            country: newParticipant.country
+            country: newParticipant.country,
+            bio: newParticipant.bio || ''
           }
         });
 
