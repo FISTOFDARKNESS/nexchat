@@ -14,6 +14,7 @@ import {
 import { PREMIUM_PRICE, formatPremiumPrice, getPriceForCountry } from '@/lib/premium-config';
 import { STICKERS, getSticker } from '@/lib/stickers';
 import { COUNTRIES, getCountryName } from '@/lib/countries';
+import { useLanguage, t } from '@/lib/i18n';
 
 let socket;
 
@@ -368,6 +369,19 @@ export default function Home() {
   const [authError, setAuthError] = useState('');
   const [isMobile, setIsMobile] = useState(false);
   const [activeView, setActiveView] = useState('sidebar'); // 'sidebar', 'chat'
+
+  // --- Idioma ---
+  const { lang, setLang } = useLanguage();
+
+  useEffect(() => {
+    const ptCountries = new Set(['BR','PT','AO','MZ','CV','GW','ST','TL','GQ']);
+    const code = (loginCountry || '').toUpperCase();
+    if (code && !ptCountries.has(code) && lang === 'pt') {
+      setLang('en');
+    } else if (ptCountries.has(code) && lang === 'en') {
+      setLang('pt');
+    }
+  }, [loginCountry, lang, setLang]);
 
   // Inputs de Login
   const [loginUsername, setLoginUsername] = useState('');
@@ -1844,14 +1858,14 @@ export default function Home() {
         if (data.token) {
           localStorage.setItem('nexchat_token', data.token);
         }
-        addToast(`Bem-vindo, ${data.user.username}!`, 'success');
+        addToast(`${t('welcome')}, ${data.user.username}!`, 'success');
       } else {
-        setAuthError(data.error || 'Falha na autenticação');
-        addToast(data.error || 'Falha na autenticação', 'error');
+        setAuthError(data.error || t('authError'));
+        addToast(data.error || t('authError'), 'error');
       }
     } catch (err) {
-      setAuthError('Erro ao conectar ao servidor de autenticação');
-      addToast('Erro ao conectar ao servidor de autenticação', 'error');
+      setAuthError(t('authServerError'));
+      addToast(t('authServerError'), 'error');
     } finally {
       setLoading(false);
     }
@@ -3419,91 +3433,91 @@ export default function Home() {
                 <MessageSquare size={30} color="#0B0B0F" strokeWidth={2.2} />
               </div>
             </div>
-            <h1 className="shimmer-text" style={{ fontSize: '34px', fontWeight: '800' }}>NexChat</h1>
-            <p style={{ color: 'var(--muted)', fontSize: '13px', marginTop: '4px' }}>A sua plataforma de conexões imediatas</p>
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '14px', flexWrap: 'wrap' }}>
-              <span className="feature-chip"><MessageSquare size={12} /> Chat</span>
-              <span className="feature-chip"><Video size={12} /> Vídeo</span>
-              <span className="feature-chip"><Timer size={12} /> Match</span>
-            </div>
-          </div>
+             <h1 className="shimmer-text" style={{ fontSize: '34px', fontWeight: '800' }}>NexChat</h1>
+             <p style={{ color: 'var(--muted)', fontSize: '13px', marginTop: '4px' }}>{lang === 'en' ? 'Instant connections platform' : 'A sua plataforma de conexões imediatas'}</p>
+             <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '14px', flexWrap: 'wrap' }}>
+               <span className="feature-chip"><MessageSquare size={12} /> {lang === 'en' ? 'Chat' : 'Chat'}</span>
+               <span className="feature-chip"><Video size={12} /> {lang === 'en' ? 'Video' : 'Vídeo'}</span>
+               <span className="feature-chip"><Timer size={12} /> {lang === 'en' ? 'Match' : 'Match'}</span>
+             </div>
+           </div>
 
-          <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div className="segmented" role="tablist">
-              <button type="button" className={loginMode === 'guest' ? 'active' : ''} onClick={() => setLoginMode('guest')}>
-                <User size={14} /> Convidado
-              </button>
-              <button type="button" className={loginMode === 'google' ? 'active' : ''} onClick={() => setLoginMode('google')}>
-                <ShieldCheck size={14} /> Google
-              </button>
-            </div>
-            {loginMode === 'guest' ? (
-              <>
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>Nome de Usuário / Apelido</label>
-                  <input 
-                    type="text" 
-                    placeholder="Ex: Gabriel" 
-                    value={loginUsername}
-                    onChange={e => setLoginUsername(e.target.value)}
-                    required
-                    style={{ width: '100%', minHeight: '44px' }}
-                  />
-                </div>
+           <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+             <div className="segmented" role="tablist">
+               <button type="button" className={loginMode === 'guest' ? 'active' : ''} onClick={() => setLoginMode('guest')}>
+                 <User size={14} /> {t('loginGuest')}
+               </button>
+               <button type="button" className={loginMode === 'google' ? 'active' : ''} onClick={() => setLoginMode('google')}>
+                 <ShieldCheck size={14} /> {t('loginGoogle')}
+               </button>
+             </div>
+             {loginMode === 'guest' ? (
+               <>
+                 <div>
+                   <label style={{ display: 'block', fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>{t('username')}</label>
+                   <input 
+                     type="text" 
+                     placeholder={lang === 'en' ? 'Ex: Gabriel' : 'Ex: Gabriel'} 
+                     value={loginUsername}
+                     onChange={e => setLoginUsername(e.target.value)}
+                     required
+                     style={{ width: '100%', minHeight: '44px' }}
+                   />
+                 </div>
 
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>Senha</label>
-                  <input 
-                    type="password" 
-                    placeholder="Crie uma senha" 
-                    value={loginPassword}
-                    onChange={e => setLoginPassword(e.target.value)}
-                    required
-                    style={{ width: '100%', minHeight: '44px' }}
-                  />
-                </div>
+                 <div>
+                   <label style={{ display: 'block', fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>{t('password')}</label>
+                   <input 
+                     type="password" 
+                     placeholder={lang === 'en' ? 'Create a password' : 'Crie uma senha'} 
+                     value={loginPassword}
+                     onChange={e => setLoginPassword(e.target.value)}
+                     required
+                     style={{ width: '100%', minHeight: '44px' }}
+                   />
+                 </div>
 
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>Gênero</label>
-                    <select value={loginGender} onChange={e => setLoginGender(e.target.value)} style={{ width: '100%', minHeight: '44px' }}>
-                      <option value="male">Masculino</option>
-                      <option value="female">Feminino</option>
-                      <option value="other">Outro</option>
-                    </select>
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>País</label>
-                    <select value={loginCountry} onChange={e => setLoginCountry(e.target.value)} style={{ width: '100%', minHeight: '44px' }}>
-                      {COUNTRIES.map(c => (
-                        <option key={c.code} value={c.code}>
-                          {c.flag} {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+                 <div style={{ display: 'flex', gap: '12px' }}>
+                   <div style={{ flex: 1 }}>
+                     <label style={{ display: 'block', fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>{t('gender')}</label>
+                     <select value={loginGender} onChange={e => setLoginGender(e.target.value)} style={{ width: '100%', minHeight: '44px' }}>
+                       <option value="male">{t('male')}</option>
+                       <option value="female">{t('female')}</option>
+                       <option value="other">{t('other')}</option>
+                     </select>
+                   </div>
+                   <div style={{ flex: 1 }}>
+                     <label style={{ display: 'block', fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>{t('country')}</label>
+                     <select value={loginCountry} onChange={e => setLoginCountry(e.target.value)} style={{ width: '100%', minHeight: '44px' }}>
+                       {COUNTRIES.map(c => (
+                         <option key={c.code} value={c.code}>
+                           {c.flag} {lang === 'en' ? c.nameEn : c.name}
+                         </option>
+                       ))}
+                     </select>
+                   </div>
+                 </div>
 
-                <button type="submit" disabled={loading} className="btn-primary animate-pulse-glow" style={{ width: '100%', justifyContent: 'center', marginTop: '8px', minHeight: '48px' }}>
-                  {loading ? 'Entrando...' : 'Entrar como Visitante'}
-                </button>
-              </>
-            ) : (
-              <>
-                <p style={{ color: 'var(--muted)', fontSize: '13px', textAlign: 'center', marginBottom: '8px' }}>
-                  Você será redirecionado para a tela de autenticação segura do Google OAuth2.
-                </p>
-                <button 
-                  type="button" 
-                  onClick={handleGoogleAuthRedirect} 
-                  disabled={loading} 
-                  className="btn-primary animate-pulse-glow" 
-                  style={{ width: '100%', justifyContent: 'center', minHeight: '48px' }}
-                >
-                  {loading ? 'Redirecionando...' : 'Iniciar Login com Google'}
-                </button>
-              </>
-            )}
+                 <button type="submit" disabled={loading} className="btn-primary animate-pulse-glow" style={{ width: '100%', justifyContent: 'center', marginTop: '8px', minHeight: '48px' }}>
+                   {loading ? t('processing') : t('loginAsGuestNew')}
+                 </button>
+               </>
+             ) : (
+               <>
+                 <p style={{ color: 'var(--muted)', fontSize: '13px', textAlign: 'center', marginBottom: '8px' }}>
+                   {t('googleLoginDesc')}
+                 </p>
+                 <button 
+                   type="button" 
+                   onClick={handleGoogleAuthRedirect} 
+                   disabled={loading} 
+                   className="btn-primary animate-pulse-glow" 
+                   style={{ width: '100%', justifyContent: 'center', minHeight: '48px' }}
+                 >
+                   {loading ? t('processing') : t('googleLoginBtn')}
+                 </button>
+               </>
+             )}
 
             {authError && (
               <p style={{ color: 'var(--red)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -3577,52 +3591,52 @@ export default function Home() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
-            {(user.role === 'admin' || user.role === 'moderator') && (
-              <button onClick={() => {
-                setShowAdminPanel(!showAdminPanel);
-                if (isMobile) setActiveView('chat');
-              }} title="Painel Moderador" style={{ color: 'var(--gold)', padding: '8px' }}>
-                <Shield size={18} />
-              </button>
-            )}
-            <button onClick={handleLogout} title="Sair" style={{ color: 'var(--muted)', padding: '8px' }}>
-              <LogOut size={18} />
-            </button>
-          </div>
-        </div>
+             {(user.role === 'admin' || user.role === 'moderator') && (
+               <button onClick={() => {
+                 setShowAdminPanel(!showAdminPanel);
+                 if (isMobile) setActiveView('chat');
+               }} title={t('adminPanel')} style={{ color: 'var(--gold)', padding: '8px' }}>
+                 <Shield size={18} />
+               </button>
+             )}
+             <button onClick={handleLogout} title={t('logout')} style={{ color: 'var(--muted)', padding: '8px' }}>
+               <LogOut size={18} />
+             </button>
+           </div>
+         </div>
 
-        {/* Lobby Omegle Button */}
-        <div style={{ padding: '16px', borderBottom: '1px solid var(--line)' }}>
-          <button 
-            className="btn-primary" 
-            onClick={() => {
-              handleEndCallIfActive();
-              setSelectedFriend(null);
-              setShowAdminPanel(false);
-              if (isMobile) setActiveView('chat');
-            }} 
-            style={{ width: '100%', justifyContent: 'center', background: 'linear-gradient(135deg, var(--gold), var(--amber))', border: 'none', color: '#0B0B0F', fontWeight: '700', minHeight: '44px', boxShadow: '0 4px 18px rgba(234, 200, 71, 0.25)' }}
-          >
-            <Video size={18} /> Chat Aleatório (Omegle)
-          </button>
-        </div>
+         {/* Lobby Omegle Button */}
+         <div style={{ padding: '16px', borderBottom: '1px solid var(--line)' }}>
+           <button 
+             className="btn-primary" 
+             onClick={() => {
+               handleEndCallIfActive();
+               setSelectedFriend(null);
+               setShowAdminPanel(false);
+               if (isMobile) setActiveView('chat');
+             }} 
+             style={{ width: '100%', justifyContent: 'center', background: 'linear-gradient(135deg, var(--gold), var(--amber))', border: 'none', color: '#0B0B0F', fontWeight: '700', minHeight: '44px', boxShadow: '0 4px 18px rgba(234, 200, 71, 0.25)' }}
+           >
+             <Video size={18} /> {t('randomChat')}
+           </button>
+         </div>
 
-        {/* Adicionar Amigo */}
-        <form onSubmit={handleAddFriend} style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '6px', borderBottom: '1px solid var(--line)' }}>
-          <label style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: '600' }}>ADICIONAR AMIGO POR ID</label>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <input 
-              type="text" 
-              placeholder="Ex: gabriel#4829" 
-              value={addFriendId}
-              onChange={e => setAddFriendId(e.target.value)}
-              style={{ fontSize: '13px', padding: '8px 12px', flex: 1, minHeight: '38px' }}
-            />
-            <button type="submit" className="btn-primary" style={{ padding: '8px 12px', minHeight: '38px' }}>
-              <UserPlus size={16} />
-            </button>
-          </div>
-          {addFriendError && <span style={{ color: 'var(--red)', fontSize: '11px' }}>{addFriendError}</span>}
+         {/* Adicionar Amigo */}
+         <form onSubmit={handleAddFriend} style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '6px', borderBottom: '1px solid var(--line)' }}>
+           <label style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: '600' }}>{t('addFriend')}</label>
+           <div style={{ display: 'flex', gap: '8px' }}>
+             <input 
+               type="text" 
+               placeholder={lang === 'en' ? 'Ex: gabriel#4829' : 'Ex: gabriel#4829'} 
+               value={addFriendId}
+               onChange={e => setAddFriendId(e.target.value)}
+               style={{ fontSize: '13px', padding: '8px 12px', flex: 1, minHeight: '38px' }}
+             />
+             <button type="submit" className="btn-primary" style={{ padding: '8px 12px', minHeight: '38px' }}>
+               <UserPlus size={16} />
+             </button>
+           </div>
+           {addFriendError && <span style={{ color: 'var(--red)', fontSize: '11px' }}>{addFriendError}</span>}
           {addFriendSuccess && <span style={{ color: 'var(--green)', fontSize: '11px' }}>{addFriendSuccess}</span>}
         </form>
 
@@ -3630,7 +3644,7 @@ export default function Home() {
         {pendingReceived.length > 0 && (
           <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', background: 'rgba(234,200,71,0.03)' }}>
             <span className="sidebar-section-title" style={{ color: 'var(--gold)', display: 'flex', marginBottom: '8px' }}>
-              CONVITES DE AMIZADE ({pendingReceived.length})
+              {t('friendRequests').toUpperCase()} ({pendingReceived.length})
             </span>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {pendingReceived.map(req => (
@@ -3656,10 +3670,10 @@ export default function Home() {
         {/* Lista de Amigos (Discord style) */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '12px 0' }}>
           <span className="sidebar-section-title" style={{ padding: '0 16px', display: 'flex', marginBottom: '8px' }}>
-            MENSAGENS DIRETAS ({friendsList.length})
+            {t('messages').toUpperCase()} ({friendsList.length})
           </span>
           {friendsList.length === 0 ? (
-            <p style={{ color: 'var(--muted)', fontSize: '12px', padding: '0 16px', fontStyle: 'italic' }}>Nenhum amigo ainda.</p>
+            <p style={{ color: 'var(--muted)', fontSize: '12px', padding: '0 16px', fontStyle: 'italic' }}>{t('noFriends')}</p>
           ) : (
             friendsList.map(f => (
               <div 

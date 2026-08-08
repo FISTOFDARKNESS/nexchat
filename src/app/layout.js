@@ -1,9 +1,10 @@
 import "./globals.css";
+import { LanguageProvider } from "@/components/LanguageProvider";
 
 // Service Worker registration moved to page.js to run on client
 
 export const metadata = {
-  title: "NexChat - Amigos, Matchmaking e Videochamadas",
+  title: "NexChat",
   description: "Conecte-se com amigos e faça chamadas de vídeo aleatórias instantaneamente.",
   manifest: "/manifest.json",
   appleWebApp: {
@@ -23,14 +24,16 @@ export const viewport = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="pt-BR">
+    <html lang="en">
       <head>
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#EAC847" />
         <link rel="apple-touch-icon" href="/icon.svg" />
       </head>
       <body>
-        {children}
+        <LanguageProvider>
+          {children}
+        </LanguageProvider>
       </body>
     </html>
   );
