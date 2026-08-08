@@ -175,7 +175,7 @@ function MediaPreview({ msg }) {
     return () => clearInterval(t);
   }, [viewOnce, opened]);
 
-  // Arquivo não existe mais (registro órfão): não renderiza nada
+  // File não existe mais (registro órfão): não renderiza nada
   if (!url || (!mime && !name)) return null;
 
   const isImage = mime && mime.startsWith('image/');
@@ -195,9 +195,9 @@ function MediaPreview({ msg }) {
     return `${m}:${String(sec).padStart(2, '0')}`;
   };
 
-  // Visualização única ainda não aberta: card clicável, sem nome de arquivo
+  // View once ainda não aberta: card clicável, sem nome de arquivo
   if (viewOnce && !opened) {
-    const label = isVideo ? 'Vídeo' : isAudio ? 'Áudio' : 'Foto';
+    const label = isVideo ? 'Video' : isAudio ? 'Audio' : 'Foto';
     const Icon = isVideo ? Video : isAudio ? Mic : Eye;
     return (
       <button
@@ -212,7 +212,7 @@ function MediaPreview({ msg }) {
         <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: 'rgba(234,200,71,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Icon size={20} style={{ color: 'var(--gold)' }} />
         </div>
-        <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text)' }}>Visualizar {label}</span>
+        <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text)' }}>View {label}</span>
         <span style={{ fontSize: '9px', fontWeight: '700', color: 'var(--gold)', background: 'rgba(0,0,0,0.55)', padding: '3px 8px', borderRadius: '10px', letterSpacing: '0.5px' }}>
           VISUALIZAÇÃO ÚNICA
         </span>
@@ -220,7 +220,7 @@ function MediaPreview({ msg }) {
     );
   }
 
-  // Visualização única: bloqueia salvar/baixar (menu de contexto, arrastar), mantém replay
+  // View once: bloqueia salvar/baixar (menu de contexto, arrastar), mantém replay
   const protect = viewOnce ? {
     onContextMenu: (e) => e.preventDefault(),
     onDragStart: (e) => e.preventDefault(),
@@ -234,7 +234,7 @@ function MediaPreview({ msg }) {
     preview = <video src={url} controls autoPlay={viewOnce} playsInline controlsList={viewOnce ? 'nodownload' : undefined} disablePictureInPicture={viewOnce} {...protect} style={{ maxWidth: '100%', maxHeight: '260px', borderRadius: '10px', display: 'block' }} />;
   } else if (isAudio) {
     if (viewOnce) {
-      // Áudio de visualização única: somente escutar (sem download, sem seek, sem controls)
+      // Audio de visualização única: somente escutar (sem download, sem seek, sem controls)
       preview = (
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 2px', ...protect }} onContextMenu={(e) => e.preventDefault()}>
           <button
@@ -245,7 +245,7 @@ function MediaPreview({ msg }) {
             {playing ? <Pause size={16} color="#111" /> : <Play size={16} color="#111" />}
           </button>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
-            <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text)' }}>Áudio</span>
+            <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text)' }}>Audio</span>
             <span style={{ fontSize: '11px', color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>
               {fmtTime(curTime)} / {fmtTime(duration)}
             </span>
@@ -278,7 +278,7 @@ function MediaPreview({ msg }) {
     preview = (
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', color: 'var(--text)' }}>
         <FileText size={14} style={{ color: 'var(--gold)' }} />
-        <span>Arquivo</span>
+        <span>File</span>
         <span style={{ color: 'var(--muted)', fontSize: '10px' }}>{formatFileSize(msg.attach?.size || msg.attachSize)}</span>
       </div>
     );
@@ -433,7 +433,7 @@ export default function Home() {
             const parsedUser = data.user;
             setUser(parsedUser);
             localStorage.setItem('nexchat_user', JSON.stringify(parsedUser));
-            addToast(`Conectado com sucesso! Bem-vindo, ${parsedUser.username}!`, 'success');
+            addToast(`Connected successfully! Welcome, ${parsedUser.username}!`, 'success');
           }
         } catch (err) {
           console.error('Erro ao ler dados do self:', err);
@@ -488,7 +488,7 @@ export default function Home() {
   const [matchMode, setMatchMode] = useState('text'); // 'text' ou 'video'
   const [queueStatusText, setQueueStatusText] = useState('');
 
-  // --- Estados de Mensagens ---
+  // --- Estados de Messages ---
   const [messages, setMessages] = useState([]);
   const [messageText, setMessageText] = useState('');
   const [replyingTo, setReplyingTo] = useState(null); // { id, content }
@@ -684,7 +684,7 @@ export default function Home() {
   const typingTimeoutRef = useRef(null);
   const typingEmittedRef = useRef(false);
 
-  // --- Grupos ---
+  // --- Groups ---
   const [groupsList, setGroupsList] = useState([]);
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
@@ -706,7 +706,7 @@ export default function Home() {
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
 
-  // --- Reações ---
+  // --- Reactions ---
   const [reactions, setReactions] = useState({}); // messageId -> grouped reactions
   const [reactionPicker, setReactionPicker] = useState(null); // { messageId, x, y }
 
@@ -1191,7 +1191,7 @@ export default function Home() {
     };
   }, [selectedFriend, user, markMessagesRead]);
 
-  // --- Inicializar Câmera e Áudio ---
+  // --- Inicializar Câmera e Audio ---
   const requestMediaPermissions = async (wantsMedia = true) => {
     let mediaOk = false;
     if (wantsMedia) {
@@ -1370,13 +1370,13 @@ export default function Home() {
     socket = io();
 
     socket.on('connect', () => {
-      console.log('Conectado ao WebSocket local');
+      console.log('Connected ao WebSocket local');
       socket.emit('identify', { userId: user.id });
     });
 
     // Sessão inválida (cookie ausente/expirado): exige novo login
     socket.on('identify_error', ({ error }) => {
-      addToast(error || 'Sessão inválida. Faça login novamente.', 'error');
+      addToast(error || 'Invalid session. Please log in again.', 'error');
       localStorage.removeItem('nexchat_user');
       localStorage.removeItem('nexchat_token');
       fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
@@ -1385,12 +1385,12 @@ export default function Home() {
     });
 
     socket.on('queue_waiting', () => {
-      setQueueStatusText('Procurando alguém compatível com seus filtros...');
+      setQueueStatusText('Looking for someone compatible with your filters...');
     });
 
     socket.on('match_found', async (data) => {
       const { roomId, role, partner } = data;
-      console.log('Par encontrado!', partner, 'Cargo:', role);
+      console.log('Match found!', partner, 'Cargo:', role);
       setInQueue(false);
       setInRandomChat(true);
       setRandomRoomId(roomId);
@@ -1410,7 +1410,7 @@ export default function Home() {
       }
       setReplyingTo(null);
       setActiveView('chat');
-      addToast(`Conectado com um parceiro de ${partner.country}!`, 'success');
+      addToast(`Connected com um parceiro de ${partner.country}!`, 'success');
 
       if (matchModeRef.current === 'video' && useMediaRef.current) {
         setQueueStatusText('Iniciando stream de vídeo...');
@@ -1420,7 +1420,7 @@ export default function Home() {
     });
 
     socket.on('peer_left', () => {
-      addToast('Seu parceiro de chat desconectou.', 'warning');
+      addToast('Your chat partner disconnected.', 'warning');
       cleanupCall();
       setInRandomChat(false);
       setRandomRoomId(null);
@@ -1807,7 +1807,7 @@ export default function Home() {
 
     socket.on('friend_call_ended', () => {
       if (callStateRef.current !== 'connected') return;
-      addToast('Chamada encerrada pelo amigo.', 'warning');
+      addToast('Call ended pelo amigo.', 'warning');
       const t = callTypeRef.current;
       cleanupCall();
       logCall(t, 0);
@@ -1911,7 +1911,7 @@ export default function Home() {
     if (socket) {
       socket.disconnect();
     }
-    addToast('Sessão encerrada com sucesso.', 'info');
+    addToast('Session closed successfully.', 'info');
   }
 
   // --- Ações de Matchmaking ---
@@ -1978,7 +1978,7 @@ export default function Home() {
     }, 200);
   };
 
-  // --- Ações de Envio e Reação de Mensagens ---
+  // --- Ações de Envio e Reação de Messages ---
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!messageText.trim()) return;
@@ -2062,7 +2062,7 @@ export default function Home() {
     }
   };
 
-  // --- Editar mensagem (apenas remetente, marca "editada") ---
+  // --- Edit mensagem (apenas remetente, marca "editada") ---
   const startEditMessage = (msg) => {
     setEditingMsgId(msg.id);
     setEditText(msg.content);
@@ -2231,7 +2231,7 @@ export default function Home() {
     }
     const max = isImage ? 5 * 1024 * 1024 : 10 * 1024 * 1024;
     if (file.size > max) {
-      addToast(`Arquivo muito grande (máx ${Math.round(max / 1024 / 1024)} MB).`, 'error');
+      addToast(`File too large (máx ${Math.round(max / 1024 / 1024)} MB).`, 'error');
       return;
     }
     setAttachment(file);
@@ -2743,7 +2743,7 @@ export default function Home() {
       socket.emit('end_friend_call', { callRoomId: roomId });
     }
     cleanupCall();
-    addToast('Chamada encerrada.', 'info');
+    addToast('Call ended.', 'info');
     logCall(t, duration);
   }, [activeCallRoom, callType, cleanupCall, addToast, logCall]);
 
@@ -2754,7 +2754,7 @@ export default function Home() {
     }
   }, [handleEndCall]);
 
-  // --- Grupos ---
+  // --- Groups ---
   const selectGroup = async (groupId) => {
     handleEndCallIfActive();
     setSelectedFriend(null);
@@ -3439,7 +3439,7 @@ export default function Home() {
              <p style={{ color: 'var(--muted)', fontSize: '13px', marginTop: '4px' }}>{lang === 'en' ? 'Instant connections platform' : 'A sua plataforma de conexões imediatas'}</p>
              <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '14px', flexWrap: 'wrap' }}>
                <span className="feature-chip"><MessageSquare size={12} /> {lang === 'en' ? 'Chat' : 'Chat'}</span>
-               <span className="feature-chip"><Video size={12} /> {lang === 'en' ? 'Video' : 'Vídeo'}</span>
+               <span className="feature-chip"><Video size={12} /> {lang === 'en' ? 'Video' : 'Video'}</span>
                <span className="feature-chip"><Timer size={12} /> {lang === 'en' ? 'Match' : 'Match'}</span>
              </div>
            </div>
@@ -3749,7 +3749,7 @@ export default function Home() {
           )}
         </div>
 
-        {/* Lista de Grupos (Discord style) */}
+        {/* Lista de Groups (Discord style) */}
         <div style={{ borderTop: '1px solid var(--line)', padding: '12px 0' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', marginBottom: '8px' }}>
             <span className="sidebar-section-title">
@@ -3859,10 +3859,10 @@ export default function Home() {
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
               {[
                 ['stats', 'Statistics'],
-                ['reports', 'Denúncias'],
+                ['reports', 'Reports'],
                 ['users', 'Users'],
                 ['files', 'Files'],
-                ['warnings', 'Avisos'],
+                ['warnings', 'Warnings'],
                 ['logs', 'Logs']
               ].map(([key, label]) => (
                 <button
@@ -4084,14 +4084,14 @@ export default function Home() {
                             className="btn-secondary"
                             style={{ padding: '5px 10px', fontSize: '11px', minHeight: '30px', display: 'flex', alignItems: 'center', gap: '4px' }}
                           >
-                            <History size={12} /> {adminHistory[u.id] ? 'Ocultar histórico' : 'Histórico'}
+                            <History size={12} /> {adminHistory[u.id] ? 'Ocultar histórico' : 'History'}
                           </button>
                         </div>
 
                         {adminHistory[u.id] && (
                           <div style={{ marginTop: '12px', background: 'var(--bg-2)', borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                             <div>
-                              <strong style={{ fontSize: '12px' }}>Mensagens privadas:</strong>
+                              <strong style={{ fontSize: '12px' }}>Messages privadas:</strong>
                               {adminHistory[u.id].directMsgs.length === 0 ? (
                                 <p style={{ fontSize: '12px', color: 'var(--muted)' }}>Nenhuma.</p>
                               ) : adminHistory[u.id].directMsgs.map(m => (
@@ -4106,7 +4106,7 @@ export default function Home() {
                               ))}
                             </div>
                             <div>
-                              <strong style={{ fontSize: '12px' }}>Mensagens em grupo:</strong>
+                              <strong style={{ fontSize: '12px' }}>Messages em grupo:</strong>
                               {adminHistory[u.id].groupMsgs.length === 0 ? (
                                 <p style={{ fontSize: '12px', color: 'var(--muted)' }}>Nenhuma.</p>
                               ) : adminHistory[u.id].groupMsgs.map(m => (
@@ -4136,7 +4136,7 @@ export default function Home() {
                               ))}
                             </div>
                             <div>
-                              <strong style={{ fontSize: '12px' }}>Denúncias contra:</strong>
+                              <strong style={{ fontSize: '12px' }}>Reports contra:</strong>
                               {adminHistory[u.id].reports.length === 0 ? (
                                 <p style={{ fontSize: '12px', color: 'var(--muted)' }}>Nenhuma.</p>
                               ) : adminHistory[u.id].reports.map(r => (
@@ -4334,10 +4334,10 @@ export default function Home() {
                   </>
                 ) : (
                   <>
-                    <button onClick={() => callFriend('audio')} title="Áudio" style={{ color: 'var(--text)', background: 'var(--bg-3)', padding: isMobile ? '6px' : '8px', borderRadius: '6px', border: '1px solid var(--line)', minHeight: isMobile ? '32px' : '36px' }}>
+                    <button onClick={() => callFriend('audio')} title="Audio" style={{ color: 'var(--text)', background: 'var(--bg-3)', padding: isMobile ? '6px' : '8px', borderRadius: '6px', border: '1px solid var(--line)', minHeight: isMobile ? '32px' : '36px' }}>
                       <Phone size={14} />
                     </button>
-                    <button onClick={() => callFriend('video')} title="Vídeo" style={{ color: 'var(--gold)', background: 'var(--gold-soft)', padding: isMobile ? '6px' : '8px', borderRadius: '6px', border: '1px solid var(--gold)', minHeight: isMobile ? '32px' : '36px' }}>
+                    <button onClick={() => callFriend('video')} title="Video" style={{ color: 'var(--gold)', background: 'var(--gold-soft)', padding: isMobile ? '6px' : '8px', borderRadius: '6px', border: '1px solid var(--gold)', minHeight: isMobile ? '32px' : '36px' }}>
                       <Video size={14} />
                     </button>
                   </>
@@ -4345,7 +4345,7 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Indicador de Chamada de Áudio (sem tela de vídeo) */}
+            {/* Indicador de Chamada de Audio (sem tela de vídeo) */}
             {callState === 'connected' && callType === 'audio' && (
               <div style={{ height: isMobile ? '56px' : '64px', background: 'var(--bg-2)', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', flexShrink: 0, flexWrap: 'wrap', padding: '0 8px' }}>
                 {Object.entries(remoteStreams).map(([peerId]) => (
@@ -4454,7 +4454,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* Histórico de Mensagens */}
+            {/* History de Messages */}
             {selectedFriend && !selectedGroup && !inRandomChat && (
               <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)', display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
                 <input
@@ -4760,7 +4760,7 @@ export default function Home() {
                         <button onClick={() => pinMessage(msg.id)} style={{ color: 'var(--muted)', border: 'none', background: 'none' }}>📌</button>
                       ))}
                       {isMe && selectedFriend && !inRandomChat && msg.type !== 'call' && (
-                        <button onClick={() => startEditMessage(msg)} style={{ color: 'var(--gold)', border: 'none', background: 'none' }}>Editar</button>
+                        <button onClick={() => startEditMessage(msg)} style={{ color: 'var(--gold)', border: 'none', background: 'none' }}>Edit</button>
                       )}
                       {isMe && selectedFriend && !inRandomChat && (
                         <button onClick={() => handleDeleteMessage(msg.id)} style={{ color: 'var(--red)', border: 'none', background: 'none' }}>Delete</button>
@@ -4824,12 +4824,12 @@ export default function Home() {
               {attachment && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-3)', border: '1px solid var(--gold)', padding: '6px 12px', borderRadius: '8px' }}>
                   {attachment.type.startsWith('image/') ? <Eye size={14} style={{ color: 'var(--gold)' }} /> : attachment.type.startsWith('video/') ? <Video size={14} style={{ color: 'var(--gold)' }} /> : <FileText size={14} style={{ color: 'var(--gold)' }} />}
-                  <span style={{ fontSize: '12px', color: 'var(--text)' }}>{attachment.type.startsWith('video/') ? 'Vídeo' : attachment.type.startsWith('audio/') ? 'Áudio' : 'Foto'}</span>
+                  <span style={{ fontSize: '12px', color: 'var(--text)' }}>{attachment.type.startsWith('video/') ? 'Video' : attachment.type.startsWith('audio/') ? 'Audio' : 'Foto'}</span>
                   <span style={{ fontSize: '10px', color: 'var(--muted)' }}>{formatFileSize(attachment.size)}</span>
                   {selectedFriend && !selectedGroup && (
                     <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: viewOnce ? 'var(--gold)' : 'var(--muted)', cursor: 'pointer' }}>
                       <input type="checkbox" checked={viewOnce} onChange={e => setViewOnce(e.target.checked)} style={{ accentColor: 'var(--gold)' }} />
-                      Visualização única
+                      View once
                     </label>
                   )}
                   {viewOnce && <span style={{ fontSize: '9px', color: 'var(--amber)', fontWeight: '700' }}>some após visto</span>}
@@ -4839,7 +4839,7 @@ export default function Home() {
 
               <div style={{ display: 'flex', gap: '6px' }}>
                 <input type="file" ref={fileInputRef} accept="image/*,video/*,audio/*" style={{ display: 'none' }} onChange={handleAttachmentSelect} />
-                <button type="button" onClick={() => fileInputRef.current && fileInputRef.current.click()} title="Send foto/vídeo/áudio" style={{ color: attachment ? 'var(--gold)' : 'var(--muted)', padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px' }}>
+                <button type="button" onClick={() => fileInputRef.current && fileInputRef.current.click()} title="Send photo/video/audio" style={{ color: attachment ? 'var(--gold)' : 'var(--muted)', padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px' }}>
                   <Paperclip size={16} />
                 </button>
                 {isRecordingVoice ? (
@@ -4948,7 +4948,7 @@ export default function Home() {
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px', textAlign: 'center' }} className="animate-fade-in">
             {isMobile && (
               <button onClick={() => setActiveView('sidebar')} style={{ position: 'absolute', top: '16px', left: '16px', color: 'var(--muted)', padding: '8px' }}>
-                <ChevronLeft size={24} /> Voltar
+                <ChevronLeft size={24} /> Back
               </button>
             )}
 
@@ -4969,7 +4969,7 @@ export default function Home() {
               <Video size={36} style={{ color: 'var(--gold)', zIndex: 2 }} />
             </div>
             
-            <h2 className="shimmer-text" style={{ marginBottom: '8px', fontSize: '20px' }}>Matchmaking Conectado</h2>
+            <h2 className="shimmer-text" style={{ marginBottom: '8px', fontSize: '20px' }}>Matchmaking Connected</h2>
             <p style={{ color: 'var(--muted)', maxWidth: '300px', fontSize: '13px', marginBottom: '24px', lineHeight: '1.4' }}>
               {queueStatusText}
             </p>
@@ -5007,7 +5007,7 @@ export default function Home() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <div style={{ flex: 1 }}>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Filtro Gênero</label>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Filtro Gender</label>
                     <select value={matchGender} onChange={e => setMatchGender(e.target.value)} style={{ width: '100%', fontSize: '12px', minHeight: '40px', padding: '6px 10px' }}>
                       <option value="any">Qualquer</option>
                       <option value="male">Homens</option>
@@ -5016,9 +5016,9 @@ export default function Home() {
                   </div>
                   
                   <div style={{ flex: 1 }}>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Filtro País</label>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Filtro Country</label>
                     <select value={matchCountry} onChange={e => setMatchCountry(e.target.value)} style={{ width: '100%', fontSize: '12px', minHeight: '40px', padding: '6px 10px' }}>
-                      <option value="any">Qualquer País (100+)</option>
+                      <option value="any">Qualquer Country (100+)</option>
                       {COUNTRIES.map(c => (
                         <option key={c.code} value={c.code}>
                           {c.flag} {c.name}
@@ -5037,7 +5037,7 @@ export default function Home() {
                     </label>
                     <label style={{ flex: 1, padding: '10px', background: matchMode === 'video' ? 'var(--gold-soft)' : 'var(--bg-3)', border: matchMode === 'video' ? '1px solid var(--gold)' : '1px solid var(--line)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', minHeight: '40px', transition: 'all 0.2s' }}>
                       <input type="radio" name="matchMode" checked={matchMode === 'video'} onChange={() => setMatchMode('video')} style={{ display: 'none' }} />
-                      <Video size={14} style={{ color: matchMode === 'video' ? 'var(--gold)' : 'var(--muted)' }} /> Vídeo
+                      <Video size={14} style={{ color: matchMode === 'video' ? 'var(--gold)' : 'var(--muted)' }} /> Video
                     </label>
                   </div>
                 </div>
@@ -5061,7 +5061,7 @@ export default function Home() {
             <div>
               <h4 style={{ fontSize: '13px', color: '#fff' }}>{incomingCall.callerData.username}</h4>
               <span style={{ fontSize: '10px', color: 'var(--muted)' }}>
-                {incomingCall.isGroup ? 'Group call' : `Chamando você`} ({incomingCall.type === 'video' ? 'Vídeo' : 'Áudio'})...
+                {incomingCall.isGroup ? 'Group call' : `Chamando você`} ({incomingCall.type === 'video' ? 'Video' : 'Audio'})...
               </span>
             </div>
           </div>
@@ -5105,7 +5105,7 @@ export default function Home() {
                       <Eye size={12} /> QUEM VIU SEU PERFIL
                     </div>
                     {profileViewsLoading ? (
-                      <p style={{ fontSize: '11px', color: 'var(--muted)' }}>Carregando...</p>
+                      <p style={{ fontSize: '11px', color: 'var(--muted)' }}>Loading...</p>
                     ) : !profileViews ? null : profileViews.premiumRequired ? (
                       <button onClick={() => setShowPremiumScreen(true)} className="btn-primary" style={{ width: '100%', justifyContent: 'center', minHeight: '36px', fontSize: '11px' }}>
                         <Crown size={12} /> Unblock com Premium
@@ -5443,7 +5443,7 @@ export default function Home() {
               <div style={{ background: 'var(--bg-3)', border: '1px solid var(--gold)', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
                   <CheckCircle size={16} style={{ color: 'var(--green)' }} />
-                  <span style={{ fontSize: '16px', fontWeight: '700', color: 'var(--gold)' }}>Plano Ativo</span>
+                  <span style={{ fontSize: '16px', fontWeight: '700', color: 'var(--gold)' }}>Active Plan</span>
                 </div>
                 <p style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '12px' }}>Expira em: {premiumStatus.premiumExpiresAt ? new Date(premiumStatus.premiumExpiresAt).toLocaleString('pt-BR') : '-'}</p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -5478,13 +5478,13 @@ export default function Home() {
                   <span style={{ fontSize: '12px', color: 'var(--muted)' }}>/mês</span>
                 </div>
                 <ul style={{ fontSize: '12px', color: 'var(--text)', lineHeight: '1.7', paddingLeft: '18px', margin: 0 }}>
-                  <li>Upload até 50 MB</li>
-                  <li>Grupos ilimitados + até 100 membros</li>
-                  <li>Mensagens de até 5000 caracteres</li>
-                  <li>Até 50 mensagens fixadas</li>
-                  <li>Prioridade no matchmaking</li>
+                  <li>Upload up to 50 MB</li>
+                  <li>Unlimited groups + up to 100 members</li>
+                  <li>Messages up to 5000 characters</li>
+                  <li>Up to 50 pinned messages</li>
+                  <li>Priority matchmaking</li>
                   <li>Calls em grupo com até 8 pessoas</li>
-                  <li>Mudar nome a qualquer momento</li>
+                  <li>Change name anytime</li>
                   <li>Invisible mode + temas personalizados</li>
                   <li>Exportar histórico do chat</li>
                 </ul>
@@ -5511,18 +5511,18 @@ export default function Home() {
                         setBuying(false);
                       }
                     } catch (e) {
-                      addToast('Erro ao conectar', 'error');
+                      addToast('Connection error', 'error');
                       setBuying(false);
                     }
                   }} disabled={buying} className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: '16px', minHeight: '44px', background: 'var(--gold-grad)', color: '#000', fontWeight: '700' }}>
-                    {buying ? 'Redirecionando...' : 'Assinar Premium'}
+                    {buying ? 'Redirecting...' : 'Subscribe Premium'}
                   </button>
                 )}
               </div>
             )}
 
             <button onClick={() => setShowPremiumScreen(false)} className="btn-secondary" style={{ minHeight: '40px' }}>
-              Fechar
+              Close
             </button>
           </div>
         </div>

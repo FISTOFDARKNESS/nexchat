@@ -119,7 +119,7 @@ export default function PremiumPage() {
         setBuying(false);
       }
     } catch (e) {
-      alert('Erro ao conectar ao servidor');
+      alert('Connection error ao servidor');
       setBuying(false);
     }
   };
