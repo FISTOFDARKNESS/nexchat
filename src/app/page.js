@@ -373,16 +373,18 @@ export default function Home() {
 
   // --- Idioma ---
   const { lang, setLang } = useLanguage();
+  const langRef = useRef(lang);
+  langRef.current = lang;
 
   useEffect(() => {
     const ptCountries = new Set(['BR','PT','AO','MZ','CV','GW','ST','TL','GQ']);
     const code = (loginCountry || '').toUpperCase();
-    if (code && !ptCountries.has(code) && lang === 'pt') {
+    if (code && !ptCountries.has(code) && langRef.current === 'pt') {
       setLang('en');
-    } else if (ptCountries.has(code) && lang === 'en') {
+    } else if (ptCountries.has(code) && langRef.current === 'en') {
       setLang('pt');
     }
-  }, [loginCountry, lang, setLang]);
+  }, [loginCountry, setLang]);
 
   // Inputs de Login
   const [loginUsername, setLoginUsername] = useState('');
