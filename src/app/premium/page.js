@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Crown, Check, Zap, ToggleLeft, Palette } from 'lucide-react';
+import { Crown, Check, Zap, ToggleLeft, Palette, ShieldAlert } from 'lucide-react';
 import { PREMIUM_PRICE, formatPremiumPrice } from '@/lib/premium-config';
 
 const THEMES = {
@@ -38,6 +38,7 @@ export default function PremiumPage() {
   const [invisibleMode, setInvisibleMode] = useState(false);
   const [saving, setSaving] = useState(false);
   const [stats, setStats] = useState(null);
+  const [isGoogleUser, setIsGoogleUser] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('nexchat_token');
@@ -55,6 +56,7 @@ export default function PremiumPage() {
           setStatus(data);
           setChatTheme(data.user?.chatTheme || 'default');
           setInvisibleMode(data.user?.invisibleMode || false);
+          setIsGoogleUser(!!data.isGoogleUser);
           if (data.user?.chatTheme) applyTheme(data.user.chatTheme);
         }
       } catch (e) {
@@ -244,7 +246,22 @@ export default function PremiumPage() {
           </div>
         )}
 
-        {!isPremium && (
+        {!isPremium && !isGoogleUser && (
+          <div style={{ background: 'var(--bg-3)', border: '1px solid var(--red)', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+              <ShieldAlert size={16} style={{ color: 'var(--red)' }} />
+              <span style={{ fontSize: '14px', fontWeight: '700', color: 'var(--red)' }}>Login Google necessário</span>
+            </div>
+            <p style={{ fontSize: '12px', color: 'var(--muted)', lineHeight: '1.5' }}>
+              Para comprar o Premium, você precisa estar logado com uma conta Google. Contas de visitante não podem assinar planos.
+            </p>
+            <button onClick={() => { window.location.href = '/'; }} className="btn-secondary" style={{ width: '100%', justifyContent: 'center', minHeight: '38px', marginTop: '12px' }}>
+              Fazer login com Google
+            </button>
+          </div>
+        )}
+
+        {!isPremium && isGoogleUser && (
           <button
             onClick={handleBuy}
             disabled={buying}

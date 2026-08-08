@@ -17,6 +17,12 @@ export async function GET(req) {
     if (!auth) {
       return NextResponse.redirect(new URL('/premium?error=unauthorized', getHost(req)));
     }
+
+    const userRow = await sql('SELECT email FROM "User" WHERE id = $1 LIMIT 1', [auth.id]);
+    if (!userRow[0]?.email) {
+      return NextResponse.redirect(new URL('/premium?error=google_required', getHost(req)));
+    }
+
     const url = new URL(req.url);
     const token = url.searchParams.get('token');
     if (!token) {

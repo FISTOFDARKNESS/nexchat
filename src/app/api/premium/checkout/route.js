@@ -17,12 +17,18 @@ export async function POST(req) {
     if (!auth) {
       return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
     }
+
+    const userRow = await sql('SELECT email FROM "User" WHERE id = $1 LIMIT 1', [auth.id]);
+    if (!userRow[0]?.email) {
+      return NextResponse.json({ error: 'Apenas usuários com login Google podem comprar Premium' }, { status: 403 });
+    }
+
     const origin = getHost(req);
     const returnUrl = `${origin}/api/premium/capture`;
     const cancelUrl = `${origin}/premium?canceled=1`;
 
-    const userRow = await sql('SELECT country FROM "User" WHERE id = $1 LIMIT 1', [auth.id]);
-    const userCountry = userRow[0]?.country || null;
+    const countryRow = await sql('SELECT country FROM "User" WHERE id = $1 LIMIT 1', [auth.id]);
+    const userCountry = countryRow[0]?.country || null;
     const { price, currency } = getPriceForCountry(userCountry);
 
     const order = await createOrder(returnUrl, cancelUrl, price, currency);

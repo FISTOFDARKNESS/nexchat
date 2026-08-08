@@ -371,6 +371,7 @@ export default function Home() {
 
   // Inputs de Login
   const [loginUsername, setLoginUsername] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [loginEmail, setLoginEmail] = useState('');
   const [loginGender, setLoginGender] = useState('male');
   const [loginCountry, setLoginCountry] = useState('BR');
@@ -1817,6 +1818,7 @@ export default function Home() {
       const payload = {
         action: loginMode,
         username: loginUsername.trim(),
+        password: loginMode === 'guest' ? loginPassword : undefined,
         email: loginMode === 'google' ? loginEmail.trim() : null,
         gender: loginGender,
         country: loginCountry
@@ -3437,6 +3439,18 @@ export default function Home() {
                     placeholder="Ex: Gabriel" 
                     value={loginUsername}
                     onChange={e => setLoginUsername(e.target.value)}
+                    required
+                    style={{ width: '100%', minHeight: '44px' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>Senha</label>
+                  <input 
+                    type="password" 
+                    placeholder="Crie uma senha" 
+                    value={loginPassword}
+                    onChange={e => setLoginPassword(e.target.value)}
                     required
                     style={{ width: '100%', minHeight: '44px' }}
                   />
@@ -5400,7 +5414,7 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-            ) : (
+             ) : (
               <div style={{ background: 'var(--bg-3)', border: '1px solid var(--line)', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
                    {(() => {
@@ -5425,24 +5439,36 @@ export default function Home() {
                   <li>Modo invisível + temas personalizados</li>
                   <li>Exportar histórico do chat</li>
                 </ul>
-                <button onClick={async () => {
-                  setBuying(true);
-                  try {
-                    const res = await authedFetch('/api/premium/checkout', { method: 'POST' });
-                    const data = await res.json();
-                    if (data.success && data.approveUrl) {
-                      window.location.href = data.approveUrl;
-                    } else {
-                      addToast(data.error || 'Erro ao iniciar pagamento', 'error');
+
+                {!user?.email ? (
+                  <div style={{ background: 'var(--bg-2)', border: '1px solid var(--red)', borderRadius: '8px', padding: '12px', marginTop: '12px', textAlign: 'center' }}>
+                    <p style={{ fontSize: '11px', color: 'var(--red)', marginBottom: '8px' }}>
+                      Para comprar Premium, faça login com Google.
+                    </p>
+                    <button onClick={() => { setShowPremiumScreen(false); handleGoogleAuthRedirect(); }} className="btn-secondary" style={{ width: '100%', justifyContent: 'center', minHeight: '36px', fontSize: '11px' }}>
+                      Entrar com Google
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={async () => {
+                    setBuying(true);
+                    try {
+                      const res = await authedFetch('/api/premium/checkout', { method: 'POST' });
+                      const data = await res.json();
+                      if (data.success && data.approveUrl) {
+                        window.location.href = data.approveUrl;
+                      } else {
+                        addToast(data.error || 'Erro ao iniciar pagamento', 'error');
+                        setBuying(false);
+                      }
+                    } catch (e) {
+                      addToast('Erro ao conectar', 'error');
                       setBuying(false);
                     }
-                  } catch (e) {
-                    addToast('Erro ao conectar', 'error');
-                    setBuying(false);
-                  }
-                }} disabled={buying} className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: '16px', minHeight: '44px', background: 'var(--gold-grad)', color: '#000', fontWeight: '700' }}>
-                  {buying ? 'Redirecionando...' : 'Assinar Premium'}
-                </button>
+                  }} disabled={buying} className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: '16px', minHeight: '44px', background: 'var(--gold-grad)', color: '#000', fontWeight: '700' }}>
+                    {buying ? 'Redirecionando...' : 'Assinar Premium'}
+                  </button>
+                )}
               </div>
             )}
 

@@ -13,7 +13,7 @@ export async function GET(req) {
     let user = null;
     try {
       const rows = await sql(
-        `SELECT id, username, "customId", "avatarUrl", role, verified, "premiumTier", "premiumSince", "premiumExpiresAt", "invisibleMode", "chatTheme", "lastNameChangeAt"
+        `SELECT id, username, "customId", "avatarUrl", role, verified, "premiumTier", "premiumSince", "premiumExpiresAt", "invisibleMode", "chatTheme", "lastNameChangeAt", email
          FROM "User" WHERE id = $1 LIMIT 1`,
         [auth.id]
       );
@@ -31,7 +31,8 @@ export async function GET(req) {
       price: PREMIUM_PRICE,
       currency: PREMIUM_CURRENCY,
       days: PREMIUM_DAYS,
-      user
+      user,
+      isGoogleUser: !!user?.email
     });
   } catch (error) {
     console.error('[Premium] status error:', error);

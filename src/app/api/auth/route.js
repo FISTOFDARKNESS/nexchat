@@ -1,6 +1,7 @@
 import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import { signUserToken, setSessionCookie } from '@/lib/session';
+import { hashPassword, verifyPassword } from '@/lib/password';
 
 function getClientIp(req) {
   const fwd = req.headers.get('x-forwarded-for');
@@ -44,26 +45,55 @@ export async function POST(req) {
   try {
     const ip = getClientIp(req);
     const body = await req.json();
-    const { action, username, email, gender, country, avatarUrl, googleId } = body;
+    const { action, username, email, gender, country, avatarUrl, googleId, password } = body;
 
-    // 1. LOGIN DE VISITANTE (GUEST)
+    // 1. LOGIN DE VISITANTE (GUEST) COM SENHA
     if (action === 'guest') {
       if (!username) {
         return NextResponse.json({ error: 'Username é obrigatório' }, { status: 400 });
       }
+      if (!password) {
+        return NextResponse.json({ error: 'Senha é obrigatória para contas de visitante' }, { status: 400 });
+      }
+
+      const existing = await sql('SELECT * FROM "User" WHERE "username" = $1 AND "isGuest" = true LIMIT 1', [username]);
+
+      if (existing.length > 0) {
+        const user = existing[0];
+        if (!user.passwordHash) {
+          return NextResponse.json({ error: 'Esta conta não possui senha. Escolha outro nome.' }, { status: 400 });
+        }
+        if (!verifyPassword(password, user.passwordHash)) {
+          return NextResponse.json({ error: 'Senha incorreta' }, { status: 401 });
+        }
+
+        const bans = await sql(
+          'SELECT * FROM "Ban" WHERE "userId" = $1 AND ("expiresAt" IS NULL OR "expiresAt" > now()) LIMIT 1',
+          [user.id]
+        );
+        if (bans.length > 0) {
+          return NextResponse.json({ error: `Usuário banido: ${bans[0].reason}` }, { status: 403 });
+        }
+
+        const updated = await sql(
+          `UPDATE "User" SET "updatedAt" = now() WHERE id = $1 RETURNING *`,
+          [user.id]
+        );
+        touchLastIp(updated[0].id, ip);
+        return setSessionCookie(NextResponse.json({ success: true, user: updated[0], token: signUserToken(updated[0]) }), updated[0]);
+      }
 
       const customId = await generateUniqueCustomId(username);
-      
+      const passwordHash = hashPassword(password);
       const result = await sql(
-        `INSERT INTO "User" ("customId", "username", "isGuest", "gender", "country", "role")
-         VALUES ($1, $2, true, $3, $4, 'user')
+        `INSERT INTO "User" ("customId", "username", "passwordHash", "isGuest", "gender", "country", "role")
+         VALUES ($1, $2, $3, true, $4, $5, 'user')
          RETURNING *`,
-        [customId, username, gender || 'other', country || 'BR']
+        [customId, username, passwordHash, gender || 'other', country || 'BR']
       );
 
       const user = result[0];
       touchLastIp(user.id, ip);
-      // Cookie de sessão é definido imediatamente no login
       return setSessionCookie(NextResponse.json({ success: true, user, token: signUserToken(user) }), user);
     }
 
