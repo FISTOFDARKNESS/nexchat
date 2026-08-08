@@ -374,17 +374,6 @@ export default function Home() {
   // --- Idioma ---
   const { lang, setLang } = useLanguage();
 
-  const handleCountryChange = (e) => {
-    const code = (e.target.value || '').toUpperCase();
-    setLoginCountry(code);
-    const ptCountries = new Set(['BR','PT','AO','MZ','CV','GW','ST','TL','GQ']);
-    if (code && !ptCountries.has(code) && lang === 'pt') {
-      setLang('en');
-    } else if (ptCountries.has(code) && lang === 'en') {
-      setLang('pt');
-    }
-  };
-
   // Inputs de Login
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -395,6 +384,17 @@ export default function Home() {
 
   // --- Sistema de Toasts Personalizados ---
   const [toasts, setToasts] = useState([]);
+
+  const handleCountryChange = (e) => {
+    const code = (e.target.value || '').toUpperCase();
+    setLoginCountry(code);
+    const ptCountries = new Set(['BR','PT','AO','MZ','CV','GW','ST','TL','GQ']);
+    if (code && !ptCountries.has(code) && lang === 'pt') {
+      setLang('en');
+    } else if (ptCountries.has(code) && lang === 'en') {
+      setLang('pt');
+    }
+  };
   
   const addToast = useCallback((message, type = 'info') => {
     const id = getTs() + Math.random().toString(36).substr(2, 5);
