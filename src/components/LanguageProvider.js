@@ -1,6 +1,7 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { getLanguageFromCountry } from '@/lib/i18n';
 
 const LanguageContext = createContext(null);
 
@@ -18,7 +19,12 @@ export function LanguageProvider({ children }) {
     } catch (e) {}
   }, [lang]);
 
-  const value = { lang, setLang };
+  const setLanguageFromCountry = useCallback((country) => {
+    const newLang = getLanguageFromCountry(country);
+    setLang(newLang);
+  }, []);
+
+  const value = { lang, setLang, setLanguageFromCountry };
   return (
     <LanguageContext.Provider value={value}>
       {children}

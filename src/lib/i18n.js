@@ -1,10 +1,46 @@
-const PT_COUNTRIES = new Set([
-  'BR','PT','AO','MZ','CV','GW','ST','TL','GQ'
-]);
+const COUNTRY_TO_LANG = {
+  BR:'pt',PT:'pt',AO:'pt',MZ:'pt',CV:'pt',GW:'pt',ST:'pt',TL:'pt',GQ:'pt',
+  ES:'es',AR:'es',MX:'es',CL:'es',CO:'es',PE:'es',UY:'es',PY:'es',BO:'es',VE:'es',EC:'es',CR:'es',PA:'es',DO:'es',PR:'es',GT:'es',HN:'es',SV:'es',NI:'es',CU:'es',JM:'es',
+  FR:'fr',BE:'fr',CA:'fr',DZ:'fr',TN:'fr',MA:'fr',SN:'fr',CI:'fr',CM:'fr',ET:'fr',TZ:'fr',UG:'fr',MG:'fr',HT:'fr',LU:'fr',MC:'fr',
+  DE:'de',AT:'de',CH:'de',LI:'de',
+  IT:'it',SM:'it',VA:'it',
+  NL:'nl',
+  SE:'sv',NO:'sv',DK:'sv',FI:'sv',
+  PL:'pl',
+  CZ:'cs',
+  GR:'el',
+  HU:'hu',
+  RO:'ro',
+  BG:'bg',
+  HR:'hr',
+  SK:'sk',
+  SI:'sl',
+  RS:'sr',
+  BA:'bs',
+  ME:'sr',
+  MK:'mk',
+  AL:'sq',
+  UA:'uk',
+  RU:'ru',
+  TR:'tr',
+  KZ:'kk',
+  UZ:'uz',
+  GE:'ka',
+  AM:'hy',
+  AZ:'az',
+  BY:'be',
+  MD:'ro',
+  IL:'he',
+  AE:'ar',SA:'ar',QA:'ar',KW:'ar',OM:'ar',BH:'ar',JO:'ar',LB:'ar',
+  EG:'ar',TN:'ar',MA:'ar',DZ:'ar',
+  PK:'ur',BD:'bn',LK:'si',NP:'ne',IN:'hi',
+  TH:'th',VN:'vi',ID:'id',PH:'tl',MY:'ms',SG:'zh',
+  KR:'ko',JP:'ja',CN:'zh',TW:'zh',HK:'zh',MO:'zh',
+};
 
 export function getLanguageFromCountry(country) {
-  if (!country || PT_COUNTRIES.has(String(country).toUpperCase())) return 'pt';
-  return 'en';
+  if (!country) return 'en';
+  return COUNTRY_TO_LANG[String(country).toUpperCase()] || 'en';
 }
 
 export const translations = {

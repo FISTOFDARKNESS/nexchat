@@ -372,7 +372,7 @@ export default function Home() {
   const [activeView, setActiveView] = useState('sidebar'); // 'sidebar', 'chat'
 
   // --- Idioma ---
-  const { lang, setLang } = useLanguage();
+  const { lang, setLang, setLanguageFromCountry } = useLanguage();
 
   // Inputs de Login
   const [loginUsername, setLoginUsername] = useState('');
@@ -386,13 +386,10 @@ export default function Home() {
   const [toasts, setToasts] = useState([]);
 
   const handleCountryChange = (e) => {
-    const code = (e.target.value || '').toUpperCase();
+    const code = e.target.value || '';
     setLoginCountry(code);
-    const ptCountries = new Set(['BR','PT','AO','MZ','CV','GW','ST','TL','GQ']);
-    if (code && !ptCountries.has(code) && lang === 'pt') {
-      setLang('en');
-    } else if (ptCountries.has(code) && lang === 'en') {
-      setLang('pt');
+    if (code) {
+      setLanguageFromCountry(code);
     }
   };
   
