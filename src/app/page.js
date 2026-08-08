@@ -791,7 +791,6 @@ export default function Home() {
         setPremiumStatus(data);
         const isPrem = !!(data.premium && data.user);
         if (!isPrem) {
-          // Reverter tudo ao normal se não for premium ou expirar
           setChatTheme('default');
           applyTheme('default');
           setInvisibleMode(false);
@@ -801,16 +800,21 @@ export default function Home() {
           localStorage.setItem('nexchat_autotranslate', '0');
           setUser(prev => {
             if (!prev) return prev;
-            const updated = {
-              ...prev,
-              premiumTier: null,
-              premiumExpiresAt: null,
-              verified: false,
-              chatTheme: 'default',
-              invisibleMode: false
-            };
-            localStorage.setItem('nexchat_user', JSON.stringify(updated));
-            return updated;
+            const merged = { ...prev };
+            let changed = false;
+            const resetFields = ['premiumTier', 'premiumExpiresAt', 'verified', 'chatTheme', 'invisibleMode'];
+            const resetValues = { premiumTier: null, premiumExpiresAt: null, verified: false, chatTheme: 'default', invisibleMode: false };
+            for (const k of resetFields) {
+              if (merged[k] !== resetValues[k]) {
+                merged[k] = resetValues[k];
+                changed = true;
+              }
+            }
+            if (changed) {
+              localStorage.setItem('nexchat_user', JSON.stringify(merged));
+              return merged;
+            }
+            return prev;
           });
         } else {
           const themeToApply = data.user?.chatTheme || 'default';
@@ -842,11 +846,14 @@ export default function Home() {
     }
   }, [user]);
 
+  const loadPremiumStatusRef = useRef(loadPremiumStatus);
+  loadPremiumStatusRef.current = loadPremiumStatus;
+
   useEffect(() => {
     if (user) {
-      loadPremiumStatus();
+      loadPremiumStatusRef.current();
     }
-  }, [user, loadPremiumStatus]);
+  }, [user]);
 
   // --- Refs com os valores mais recentes (para handlers do socket) ---
   const matchModeRef = useRef(matchMode);
