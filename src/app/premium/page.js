@@ -151,7 +151,7 @@ export default function PremiumPage() {
   if (loading) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--text)' }}>
-        <p>Carregando...</p>
+        <p>Loading...</p>
       </div>
     );
   }
@@ -167,7 +167,7 @@ export default function PremiumPage() {
 
         <h1 style={{ fontSize: '24px', color: 'var(--gold)', marginBottom: '8px' }}>NexChat Premium</h1>
         <p style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '24px', lineHeight: '1.5' }}>
-          Desbloqueie recursos exclusivos e aproveite o app sem limites.
+          Unlock exclusive features and enjoy the app without limits.
         </p>
 
         {isPremium ? (
@@ -175,19 +175,19 @@ export default function PremiumPage() {
             <div style={{ background: 'var(--bg-3)', border: '1px solid var(--gold)', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
               <Zap size={16} style={{ color: 'var(--gold)' }} />
-              <span style={{ fontSize: '16px', fontWeight: '700', color: 'var(--gold)' }}>Plano Ativo</span>
+              <span style={{ fontSize: '16px', fontWeight: '700', color: 'var(--gold)' }}>Active Plan</span>
             </div>
             <p style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '12px' }}>Expira em: {status.premiumExpiresAt ? new Date(status.premiumExpiresAt).toLocaleString('pt-BR') : '-'}</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '12px', color: 'var(--text)' }}>Modo invisível</span>
+                <span style={{ fontSize: '12px', color: 'var(--text)' }}>Invisible mode</span>
                 <button onClick={() => setInvisibleMode(prev => !prev)} style={{ background: invisibleMode ? 'var(--gold)' : 'var(--line)', border: 'none', borderRadius: '20px', width: '44px', height: '24px', position: 'relative', cursor: 'pointer', padding: 0 }}>
                   <div style={{ position: 'absolute', top: '2px', left: invisibleMode ? '22px' : '2px', width: '20px', height: '20px', borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
                 </button>
               </div>
               <div>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>
-                  <Palette size={12} /> Tema do chat
+                  <Palette size={12} /> Chat theme
                 </label>
                 <select value={chatTheme} onChange={e => setChatTheme(e.target.value)} style={{ width: '100%', fontSize: '12px', padding: '8px', background: 'var(--bg)', border: '1px solid var(--line)', color: '#fff', borderRadius: '6px' }}>
                   {Object.entries(THEMES).map(([key, t]) => (
@@ -196,7 +196,7 @@ export default function PremiumPage() {
                 </select>
               </div>
               <button onClick={saveSettings} disabled={saving} className="btn-primary" style={{ width: '100%', justifyContent: 'center', minHeight: '38px', fontSize: '12px', marginTop: '4px' }}>
-                {saving ? 'Salvando...' : 'Salvar configurações'}
+                {saving ? 'Salvando...' : 'Save settings'}
               </button>
             </div>
           </div>
@@ -205,18 +205,18 @@ export default function PremiumPage() {
             <div style={{ background: 'var(--bg-3)', border: '1px solid var(--line)', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
                 <Zap size={16} style={{ color: 'var(--gold)' }} />
-                <span style={{ fontSize: '14px', fontWeight: '700', color: 'var(--gold)' }}>Suas estatísticas</span>
+                <span style={{ fontSize: '14px', fontWeight: '700', color: 'var(--gold)' }}>Your statistics</span>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-                <Stat label="Mensagens" value={stats.msgsSent} />
-                <Stat label="Chamadas" value={stats.callsMade} />
-                <Stat label="Min em ligação" value={stats.callMinutes} />
-                <Stat label="Reações" value={stats.reactions} />
+                <Stat label="Messages" value={stats.msgsSent} />
+                <Stat label="Calls" value={stats.callsMade} />
+                <Stat label="Minutes in call" value={stats.callMinutes} />
+                <Stat label="Reactions" value={stats.reactions} />
                 <Stat label="Likes" value={stats.likes} />
-                <Stat label="Arquivos" value={stats.files} />
-                <Stat label="Amigos" value={stats.friends} />
-                <Stat label="Grupos" value={stats.groups} />
-                <Stat label="Dias premium" value={stats.premiumDays} />
+                <Stat label="Files" value={stats.files} />
+                <Stat label="Friends" value={stats.friends} />
+                <Stat label="Groups" value={stats.groups} />
+                <Stat label="Premium days" value={stats.premiumDays} />
               </div>
             </div>
           )}
@@ -228,20 +228,20 @@ export default function PremiumPage() {
               <span style={{ fontSize: '12px', color: 'var(--muted)' }}>/mês</span>
             </div>
             <ul style={{ fontSize: '12px', color: 'var(--text)', lineHeight: '1.6', paddingLeft: '16px', margin: 0 }}>
-              <li>Upload até 50 MB (foto/vídeo/áudio)</li>
-              <li>Grupos ilimitados + até 100 membros</li>
-              <li>Mensagens de até 5000 caracteres</li>
-              <li>Até 50 mensagens fixadas</li>
-              <li>Prioridade no matchmaking</li>
-              <li>Chamadas em grupo com até 8 pessoas</li>
-              <li>Mudar nome a qualquer momento</li>
-              <li>Modo invisível + temas personalizados</li>
-              <li>Quem viu meu perfil + quem leu no grupo</li>
-              <li>Mensagens que se autodestroem (5min/1h/24h)</li>
-              <li>Tradução automática de mensagens</li>
-              <li>Stickers exclusivos</li>
-              <li>Badge de coroa + selo de verificado</li>
-              <li>Exportar histórico do chat (JSON)</li>
+              <li>Upload up to 50 MB (photo/video/audio)</li>
+              <li>Groups ilimitados + até 100 membros</li>
+              <li>Messages de até 5000 caracteres</li>
+              <li>Up to 50 pinned messages</li>
+              <li>Priority matchmaking</li>
+              <li>Calls em grupo com até 8 pessoas</li>
+              <li>Change name anytime</li>
+              <li>Invisible mode + temas personalizados</li>
+              <li>Who viewed my profile + group read receipts</li>
+              <li>Messages que se autodestroem (5min/1h/24h)</li>
+              <li>Auto-translation of messages</li>
+              <li>Exclusive stickers</li>
+              <li>Crown badge + verified seal</li>
+              <li>Export chat history (JSON)</li>
             </ul>
           </div>
         )}
@@ -250,13 +250,13 @@ export default function PremiumPage() {
           <div style={{ background: 'var(--bg-3)', border: '1px solid var(--red)', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
               <ShieldAlert size={16} style={{ color: 'var(--red)' }} />
-              <span style={{ fontSize: '14px', fontWeight: '700', color: 'var(--red)' }}>Login Google necessário</span>
+              <span style={{ fontSize: '14px', fontWeight: '700', color: 'var(--red)' }}>Google login required</span>
             </div>
             <p style={{ fontSize: '12px', color: 'var(--muted)', lineHeight: '1.5' }}>
-              Para comprar o Premium, você precisa estar logado com uma conta Google. Contas de visitante não podem assinar planos.
+              To purchase Premium, you need to be logged in with a Google account. Guest accounts cannot subscribe.
             </p>
             <button onClick={() => { window.location.href = '/'; }} className="btn-secondary" style={{ width: '100%', justifyContent: 'center', minHeight: '38px', marginTop: '12px' }}>
-              Fazer login com Google
+              Log in with Google
             </button>
           </div>
         )}
@@ -268,16 +268,16 @@ export default function PremiumPage() {
             className="btn-primary"
             style={{ width: '100%', justifyContent: 'center', minHeight: '44px', background: 'var(--gold)', color: '#000', fontWeight: '700' }}
           >
-            {buying ? 'Redirecionando...' : 'Assinar Premium'}
+            {buying ? 'Redirecting...' : 'Subscribe Premium'}
           </button>
         )}
 
         <p style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '12px' }}>
-          Pagamento seguro via PayPal. Cancele quando quiser.
+          Secure payment via PayPal. Cancel anytime.
         </p>
 
         <button onClick={() => { window.location.href = '/'; }} className="btn-secondary" style={{ minHeight: '40px', marginTop: '8px' }}>
-          Voltar para o chat
+          Back to chat
         </button>
       </div>
     </div>

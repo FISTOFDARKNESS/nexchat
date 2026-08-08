@@ -334,7 +334,7 @@ function PremiumBadge({ user, size = 12 }) {
 // Badge de check azul para usuários verificados
 function VerifiedBadge({ user, size = 12 }) {
   if (!user || !user.verified) return null;
-  return <ShieldCheck size={size} fill="#3B82F6" style={{ color: '#3B82F6', flexShrink: 0 }} title="Verificado" />;
+  return <ShieldCheck size={size} fill="#3B82F6" style={{ color: '#3B82F6', flexShrink: 0 }} title="Verified" />;
 }
 
 function UserBadges({ user, size = 12 }) {
@@ -494,7 +494,7 @@ export default function Home() {
   const [messageText, setMessageText] = useState('');
   const [replyingTo, setReplyingTo] = useState(null); // { id, content }
 
-  // --- Estados de Chamadas com Amigos ---
+  // --- Estados de Calls com Friends ---
   const [activeCallRoom, setActiveCallRoom] = useState(null);
   const [incomingCall, setIncomingCall] = useState(null); // { callerData, type, callRoomId }
   const [callState, setCallState] = useState('idle'); // 'idle', 'calling', 'ringing', 'connected'
@@ -606,7 +606,7 @@ export default function Home() {
 
       if (res.ok) {
         setPushEnabled(true);
-        addToast('Notificações ativadas!', 'success');
+        addToast('Notifications enabled!', 'success');
       } else {
         addToast('Erro ao ativar notificações.', 'error');
       }
@@ -1092,7 +1092,7 @@ export default function Home() {
     }
   };
 
-  // --- Indicador "digitando..." ---
+  // --- Indicador "typing..." ---
   const emitTyping = (isTyping) => {
     if (!selectedFriend || inRandomChat) return;
     const sortedIds = [user.id, selectedFriend.friendId].sort();
@@ -1555,7 +1555,7 @@ export default function Home() {
       }
     });
 
-    // Lista de participantes enviada a quem acabou de aceitar (cria PCs chamadores)
+    // Lista de members enviada a quem acabou de aceitar (cria PCs chamadores)
     socket.on('call_participants', async ({ participants }) => {
       const roomId = activeCallRoomRef.current;
       if (!roomId) return;
@@ -1998,7 +1998,7 @@ export default function Home() {
 
     setReplyingTo(null);
 
-    // 1. Mensagem para Chat Aleatório (Omegle)
+    // 1. Mensagem para Random Chat (Omegle)
     if (inRandomChat && randomRoomId) {
       setMessages(prev => [...prev, payload]);
       socket.emit('send_random_msg', { roomId: randomRoomId, message: payload });
@@ -2033,13 +2033,13 @@ export default function Home() {
     }
   };
 
-  // --- Apagar mensagem direta (apenas remetente) ---
+  // --- Delete mensagem direta (apenas remetente) ---
   const handleDeleteMessage = async (msgId) => {
     if (!user || !selectedFriend) return;
     const msg = messages.find(m => m.id === msgId);
     if (msg && msg.type === 'call') {
-      if (!confirm('Apagar o registro desta chamada?')) return;
-    } else if (!confirm('Apagar esta mensagem para todos?')) return;
+      if (!confirm('Delete o registro desta chamada?')) return;
+    } else if (!confirm('Delete esta mensagem para todos?')) return;
     try {
       const res = await authedFetch('/api/messages', {
         method: 'POST',
@@ -2096,7 +2096,7 @@ export default function Home() {
     }
   };
 
-  // --- Bloquear / desbloquear usuário ---
+  // --- Block / desbloquear usuário ---
   const toggleBlock = async (target) => {
     if (!user || !target) return;
     const isBlocked = !!blockedIds[target.id];
@@ -2126,7 +2126,7 @@ export default function Home() {
     }
   };
 
-  // --- Editar perfil (bio/status) ---
+  // --- Edit profile (bio/status) ---
   const openEditProfile = () => {
     setEditBio(user.bio || '');
     setEditStatus(user.status || '');
@@ -2581,7 +2581,7 @@ export default function Home() {
     }
   };
 
-  // --- Adicionar Amigo via ID (Sidebar) ---
+  // --- Add Amigo via ID (Sidebar) ---
   const handleAddFriend = async (e) => {
     e.preventDefault();
     setAddFriendError('');
@@ -2663,7 +2663,7 @@ export default function Home() {
     }
   };
 
-  // --- Chamada Direta com Amigos ---
+  // --- Chamada Direta com Friends ---
   const callFriend = async (type) => {
     if (!selectedFriendRef.current || !user) return;
     
@@ -2698,7 +2698,7 @@ export default function Home() {
 
     socket.emit('call_friend', {
       friendUserId: selectedFriendRef.current.friendId,
-      callerData: { id: user.id, username: user.username, avatarUrl: user.avatarUrl },
+      callerDate: { id: user.id, username: user.username, avatarUrl: user.avatarUrl },
       type,
       callRoomId
     });
@@ -2716,7 +2716,7 @@ export default function Home() {
 
     socket.emit('accept_friend_call', { callRoomId });
     if (useMedia) {
-      // O servidor responde com call_participants (lista de participantes já na sala);
+      // O servidor responde com call_participants (lista de members já na sala);
       // nele criamos os PCs chamadores. Em chamada de grupo não há peer para o host (só via eventos).
       if (!incomingCall.isGroup) {
         // 'callee': não cria oferta (quem chama é quem oferece) -> evita glare de ofertas cruzadas
@@ -2805,7 +2805,7 @@ export default function Home() {
         const pinnedAt = new Date().toISOString();
         setMessages(prev => prev.map(m => m.id === messageId ? { ...m, pinnedAt } : m));
         if (selectedGroup) socket.emit('pin_group_msg', { groupId: selectedGroup.id, messageId, pinnedAt });
-        addToast('Mensagem fixada.', 'success');
+        addToast('Pinned message.', 'success');
       } else {
         addToast(data.error || 'Erro ao fixar.', 'warning');
       }
@@ -2897,7 +2897,7 @@ export default function Home() {
     }
   };
 
-  // --- Enviar sticker (premium) ---
+  // --- Send sticker (premium) ---
   const sendSticker = async (sticker) => {
     if (!premiumStatus?.premium) {
       setShowPremiumScreen(true);
@@ -3082,7 +3082,7 @@ export default function Home() {
       });
       const data = await res.json();
       if (data.success) {
-        addToast('Membro removido do grupo.', 'success');
+        addToast('Member removido do grupo.', 'success');
         selectGroup(selectedGroup.id);
       } else {
         addToast(data.error || 'Erro ao remover membro.', 'warning');
@@ -3138,7 +3138,7 @@ export default function Home() {
     }
   };
 
-  // --- Adicionar amigo à chamada em andamento ---
+  // --- Add amigo à chamada em andamento ---
   const addToCall = async (friend) => {
     if (!activeCallRoom) return;
     setShowAddToCallModal(false);
@@ -3294,7 +3294,7 @@ export default function Home() {
   };
 
   const handleAdminKick = async (targetUserId, username) => {
-    if (!confirm(`Desconectar ${username} do app?`)) return;
+    if (!confirm(`Disconnect ${username} from the app?`)) return;
     try {
       const res = await authedFetch('/api/admin', {
         method: 'POST',
@@ -3327,7 +3327,7 @@ export default function Home() {
   };
 
   const handleAdminDeleteFile = async (fileId, ownerId) => {
-    if (!confirm('Apagar esta mídia? (o arquivo será removido do storage)')) return;
+    if (!confirm('Delete esta mídia? (o arquivo será removido do storage)')) return;
     try {
       const res = await authedFetch('/api/admin', {
         method: 'POST',
@@ -3342,7 +3342,7 @@ export default function Home() {
   };
 
   const handleAdminDeleteMessage = async (messageId, table, ownerId) => {
-    if (!confirm('Apagar esta mensagem para todos os envolvidos?')) return;
+    if (!confirm('Delete esta mensagem para todos os envolvidos?')) return;
     try {
       const res = await authedFetch('/api/admin', {
         method: 'POST',
@@ -3406,7 +3406,7 @@ export default function Home() {
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <button className="btn-primary animate-pulse-glow" onClick={() => requestMediaPermissions(true)} style={{ justifyContent: 'center', minHeight: '48px' }}>
-              <Video className="icon" /> Aceitar Cookies e Ativar Câmera + Microfone
+              <Video className="icon" /> Accept Cookies e Ativar Câmera + Microfone
             </button>
             <button className="btn-secondary" onClick={() => requestMediaPermissions(false)} style={{ minHeight: '48px' }}>
               Apenas Modo Texto (Sem Câmera/Microfone)
@@ -3621,7 +3621,7 @@ export default function Home() {
            </button>
          </div>
 
-         {/* Adicionar Amigo */}
+         {/* Add Amigo */}
          <form onSubmit={handleAddFriend} style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '6px', borderBottom: '1px solid var(--line)' }}>
            <label style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: '600' }}>{t('addFriend')}</label>
            <div style={{ display: 'flex', gap: '8px' }}>
@@ -3667,7 +3667,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* Lista de Amigos (Discord style) */}
+        {/* Lista de Friends (Discord style) */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '12px 0' }}>
           <span className="sidebar-section-title" style={{ padding: '0 16px', display: 'flex', marginBottom: '8px' }}>
             {t('messages').toUpperCase()} ({friendsList.length})
@@ -3725,9 +3725,9 @@ export default function Home() {
         <div style={{ borderTop: '1px solid var(--line)', padding: '12px 0' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', marginBottom: '8px' }}>
             <span className="sidebar-section-title">
-              GRUPOS ({groupsList.length})
+              GROUPS ({groupsList.length})
             </span>
-            <button onClick={() => setShowCreateGroupModal(true)} title="Criar grupo" style={{ color: 'var(--gold)', padding: '4px', display: 'flex' }}>
+            <button onClick={() => setShowCreateGroupModal(true)} title="Create group" style={{ color: 'var(--gold)', padding: '4px', display: 'flex' }}>
               <UserPlus size={15} />
             </button>
           </div>
@@ -3739,7 +3739,7 @@ export default function Home() {
             </div>
           )}
           {groupsList.length === 0 ? (
-            <p style={{ color: 'var(--muted)', fontSize: '12px', padding: '0 16px', fontStyle: 'italic' }}>Nenhum grupo ainda.</p>
+            <p style={{ color: 'var(--muted)', fontSize: '12px', padding: '0 16px', fontStyle: 'italic' }}>No groups yet.</p>
           ) : (
             groupsList.map(g => (
               <div
@@ -3767,7 +3767,7 @@ export default function Home() {
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ fontSize: '11px', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.memberCount} participantes</span>
+                    <span style={{ fontSize: '11px', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.memberCount} members</span>
                     {(g.unreadCount || 0) > 0 && (
                       <span style={{ background: 'var(--gold)', color: '#111', fontSize: '9px', fontWeight: '700', borderRadius: '8px', padding: '1px 6px', flexShrink: 0 }}>
                         {g.unreadCount}
@@ -3778,7 +3778,7 @@ export default function Home() {
                 {(g.myRole === 'owner' || g.myRole === 'admin') && (
                   <button
                     onClick={(e) => { e.stopPropagation(); setSelectedGroup(g); setShowGroupManageModal(true); }}
-                    title="Gerenciar grupo"
+                    title="Manage group"
                     style={{ color: 'var(--gold)', background: 'none', border: 'none', padding: '4px', display: 'flex' }}
                   >
                     <Settings size={14} />
@@ -3803,7 +3803,7 @@ export default function Home() {
         }}
       >
         
-        {/* Painel Administrativo */}
+        {/* Admin Panel */}
         {showAdminPanel ? (
           <div style={{ flex: 1, padding: '16px', overflowY: 'auto' }} className="animate-fade-in">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -3813,7 +3813,7 @@ export default function Home() {
                     <ChevronLeft size={20} />
                   </button>
                 )}
-                <h2 style={{ color: 'var(--gold)', fontSize: '20px' }}>Painel Administrativo</h2>
+                <h2 style={{ color: 'var(--gold)', fontSize: '20px' }}>Admin Panel</h2>
               </div>
               <button onClick={() => {
                 setShowAdminPanel(false);
@@ -3830,10 +3830,10 @@ export default function Home() {
             {/* Abas */}
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
               {[
-                ['stats', 'Estatísticas'],
+                ['stats', 'Statistics'],
                 ['reports', 'Denúncias'],
-                ['users', 'Usuários'],
-                ['files', 'Arquivos'],
+                ['users', 'Users'],
+                ['files', 'Files'],
                 ['warnings', 'Avisos'],
                 ['logs', 'Logs']
               ].map(([key, label]) => (
@@ -3850,37 +3850,37 @@ export default function Home() {
 
             {adminTab === 'stats' && (
               <>
-                {/* Anúncio Global */}
+                {/* Global Announcement */}
                 <div className="glass-card" style={{ border: '1px solid var(--line)', marginBottom: '16px' }}>
                   <h3 style={{ marginBottom: '12px', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Megaphone size={16} /> Anúncio Global
+                    <Megaphone size={16} /> Global Announcement
                   </h3>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     <input
                       value={broadcastMsg}
                       onChange={e => setBroadcastMsg(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') handleBroadcast(); }}
-                      placeholder="Mensagem para todos os usuários online..."
+                      placeholder="Message for all online users..."
                       style={{ flex: 1, minWidth: '220px', padding: '10px', borderRadius: '8px', border: '1px solid var(--line)', background: 'var(--bg)', color: 'var(--text)', fontSize: '13px' }}
                     />
                     <button onClick={handleBroadcast} className="btn-primary" style={{ padding: '6px 16px', fontSize: '13px', minHeight: '38px' }}>
-                      Enviar
+                      Send
                     </button>
                   </div>
                 </div>
 
                 <div className="glass-card" style={{ border: '1px solid var(--line)', marginBottom: '16px' }}>
                   <h3 style={{ marginBottom: '12px', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <BarChart3 size={16} /> Estatísticas
+                    <BarChart3 size={16} /> Statistics
                   </h3>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px' }}>
                     <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
                       <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.activeUsers ?? '-'}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Online agora</div>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Online now</div>
                     </div>
                     <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
                       <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalUsers ?? '-'}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Usuários</div>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Users</div>
                     </div>
                     <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
                       <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalMessages ?? '-'}</div>
@@ -3892,19 +3892,19 @@ export default function Home() {
                     </div>
                     <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
                       <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalCalls ?? '-'}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Chamadas</div>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Calls</div>
                     </div>
                     <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
                       <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--red)' }}>{adminStats?.totalBans ?? '-'}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Bans ativos</div>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Active bans</div>
                     </div>
                     <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
                       <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalFiles ?? '-'}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Arquivos</div>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Files</div>
                     </div>
                     <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
                       <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--gold)' }}>{adminStats?.totalWarnings ?? '-'}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Advertências</div>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Warnings</div>
                     </div>
                   </div>
                 </div>
@@ -3913,40 +3913,40 @@ export default function Home() {
 
             {adminTab === 'reports' && (
               <div className="glass-card" style={{ border: '1px solid var(--line)' }}>
-                <h3 style={{ marginBottom: '12px', fontSize: '16px' }}>Denúncias Recebidas</h3>
+                <h3 style={{ marginBottom: '12px', fontSize: '16px' }}>Received Reports</h3>
                 {reports.length === 0 ? (
-                  <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Nenhuma denúncia pendente.</p>
+                  <p style={{ color: 'var(--muted)', fontSize: '13px' }}>No pending reports.</p>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     {reports.map(rep => (
                       <div key={rep.id} style={{ padding: '12px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: '8px' }} className="animate-slide-in">
                         <div style={{ display: 'flex', flexDirection: 'column', fontSize: '11px', color: 'var(--muted)', marginBottom: '8px', gap: '2px' }}>
-                          <span>Denunciante: {rep.reporterName}</span>
-                          <span>Data: {new Date(rep.createdAt).toLocaleString()}</span>
+                          <span>Reporter: {rep.reporterName}</span>
+                          <span>Date: {new Date(rep.createdAt).toLocaleString()}</span>
                         </div>
                         <div style={{ fontSize: '14px', marginBottom: '8px' }}>
-                          <strong>Denunciado: </strong> {rep.reportedName} ({rep.reportedCustomId})
+                          <strong>Reported: </strong> {rep.reportedName} ({rep.reportedCustomId})
                         </div>
                         <p style={{ fontSize: '13px', background: 'var(--bg-2)', padding: '10px', borderRadius: '6px', marginBottom: '12px' }}>
-                          <strong>Motivo: </strong> {rep.reason} <br/>
-                          <strong>Detalhes: </strong> {rep.details || 'Sem detalhes.'}
+                          <strong>Reason: </strong> {rep.reason} <br/>
+                          <strong>Details: </strong> {rep.details || 'No details.'}
                         </p>
                         
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                           {rep.isCurrentlyBanned ? (
                             <button onClick={() => handleAdminAction(rep.reportedId, 'unban')} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', minHeight: '34px' }}>
-                              Desbanir
+                              Unban
                             </button>
                           ) : (
                             <>
                               <button onClick={() => handleAdminAction(rep.reportedId, 'warn')} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', minHeight: '34px' }}>
-                                Advertir
+                                Warn
                               </button>
                               <button onClick={() => handleAdminAction(rep.reportedId, 'ban', 1)} className="btn-primary" style={{ background: 'var(--red)', color: '#fff', padding: '6px 12px', fontSize: '12px', minHeight: '34px' }}>
-                                Banir 1 Dia
+                                Ban 1 Day
                               </button>
                               <button onClick={() => handleAdminAction(rep.reportedId, 'ban', 0)} className="btn-primary" style={{ background: 'var(--red)', color: '#fff', padding: '6px 12px', fontSize: '12px', minHeight: '34px' }}>
-                                Banir Permanente
+                                Ban Permanent
                               </button>
                             </>
                           )}
@@ -3961,25 +3961,25 @@ export default function Home() {
             {adminTab === 'users' && (
               <div className="glass-card" style={{ border: '1px solid var(--line)' }}>
                 <h3 style={{ marginBottom: '12px', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Search size={16} /> Buscar Usuário
+                  <Search size={16} /> Search Usuário
                 </h3>
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
                   <input
                     value={adminUserQuery}
                     onChange={e => setAdminUserQuery(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter') loadAdminUsers(adminUserQuery); }}
-                    placeholder="Username, customId ou e-mail..."
+                    placeholder="Username, customId or email..."
                     style={{ flex: 1, minWidth: '220px', padding: '10px', borderRadius: '8px', border: '1px solid var(--line)', background: 'var(--bg)', color: 'var(--text)', fontSize: '13px' }}
                   />
                   <button onClick={() => loadAdminUsers(adminUserQuery)} className="btn-primary" style={{ padding: '6px 16px', fontSize: '13px', minHeight: '38px' }}>
-                    Buscar
+                    Search
                   </button>
                 </div>
 
                 {adminUsers === null ? (
-                  <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Digite algo acima para buscar usuários.</p>
+                  <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Type something above to search users.</p>
                 ) : adminUsers.length === 0 ? (
-                  <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Nenhum usuário encontrado.</p>
+                  <p style={{ color: 'var(--muted)', fontSize: '13px' }}>No users found.</p>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     {adminUsers.map(u => (
@@ -3996,12 +3996,12 @@ export default function Home() {
                             {u.isOnline ? '● online' : 'offline'}
                           </span>
                           {u.lastSeen && !u.isOnline && (
-                            <span style={{ fontSize: '11px', color: 'var(--muted)' }}>últ. {new Date(u.lastSeen).toLocaleString()}</span>
+                            <span style={{ fontSize: '11px', color: 'var(--muted)' }}>last {new Date(u.lastSeen).toLocaleString()}</span>
                           )}
                           {u.lastIp && <span style={{ fontSize: '11px', color: 'var(--muted)' }}>IP: {u.lastIp}</span>}
-                          <span style={{ fontSize: '11px', color: u.warningCount > 0 ? 'var(--amber)' : 'var(--muted)' }}>{u.warningCount} aviso(s)</span>
+                          <span style={{ fontSize: '11px', color: u.warningCount > 0 ? 'var(--amber)' : 'var(--muted)' }}>{u.warningCount} warning(s)</span>
                           {u.activeBanReason && (
-                            <span style={{ fontSize: '11px', color: 'var(--red)' }}>BANIDO: {u.activeBanReason}</span>
+                            <span style={{ fontSize: '11px', color: 'var(--red)' }}>BANNED: {u.activeBanReason}</span>
                           )}
                         </div>
 
@@ -4009,22 +4009,22 @@ export default function Home() {
                           {!u.activeBanReason ? (
                             <>
                               <button onClick={() => handleAdminAction(u.id, 'warn')} className="btn-secondary" style={{ padding: '5px 10px', fontSize: '11px', minHeight: '30px' }}>
-                                Advertir
+                                Warn
                               </button>
                               <button onClick={() => handleAdminAction(u.id, 'ban', 1)} className="btn-primary" style={{ background: 'var(--red)', color: '#fff', padding: '5px 10px', fontSize: '11px', minHeight: '30px' }}>
-                                Banir 1D
+                                Ban 1D
                               </button>
                               <button onClick={() => handleAdminAction(u.id, 'ban', 0)} className="btn-primary" style={{ background: 'var(--red)', color: '#fff', padding: '5px 10px', fontSize: '11px', minHeight: '30px' }}>
-                                Banir Perm
+                                Ban Perm
                               </button>
                             </>
                           ) : (
                             <button onClick={() => handleAdminAction(u.id, 'unban')} className="btn-secondary" style={{ padding: '5px 10px', fontSize: '11px', minHeight: '30px' }}>
-                              Desbanir
+                              Unban
                             </button>
                           )}
                           <button onClick={() => handleAdminAction(u.id, 'toggle_verified')} className="btn-secondary" style={{ padding: '5px 10px', fontSize: '11px', minHeight: '30px', color: u.verified ? '#3B82F6' : 'var(--muted)' }}>
-                            {u.verified ? '✓ Verificado' : 'Verificar'}
+                            {u.verified ? '✓ Verified' : 'Verify'}
                           </button>
                           <button onClick={() => handleAdminAction(u.id, 'grant_premium', 30)} className="btn-secondary" style={{ padding: '5px 10px', fontSize: '11px', minHeight: '30px', color: u.premiumTier === 'premium' ? 'var(--gold)' : 'var(--muted)' }}>
                             <Crown size={11} /> {u.premiumTier === 'premium' ? 'Premium' : '+Premium'}
@@ -4072,7 +4072,7 @@ export default function Home() {
                                     <span style={{ color: 'var(--muted)' }}>{m.type}: </span>{m.content || '(mídia)'} <span style={{ color: 'var(--muted)' }}>— {new Date(m.createdAt).toLocaleString()}</span>
                                   </span>
                                   <button onClick={() => handleAdminDeleteMessage(m.id, 'direct', u.id)} style={{ color: 'var(--red)', background: 'none', border: 'none', fontSize: '11px', padding: '2px' }}>
-                                    Apagar
+                                    Delete
                                   </button>
                                 </div>
                               ))}
@@ -4087,13 +4087,13 @@ export default function Home() {
                                     <span style={{ color: 'var(--muted)' }}>[{m.groupName}] </span>{m.content || '(mídia)'} <span style={{ color: 'var(--muted)' }}>— {new Date(m.createdAt).toLocaleString()}</span>
                                   </span>
                                   <button onClick={() => handleAdminDeleteMessage(m.id, 'group', u.id)} style={{ color: 'var(--red)', background: 'none', border: 'none', fontSize: '11px', padding: '2px' }}>
-                                    Apagar
+                                    Delete
                                   </button>
                                 </div>
                               ))}
                             </div>
                             <div>
-                              <strong style={{ fontSize: '12px' }}>Arquivos enviados:</strong>
+                              <strong style={{ fontSize: '12px' }}>Files enviados:</strong>
                               {adminHistory[u.id].files.length === 0 ? (
                                 <p style={{ fontSize: '12px', color: 'var(--muted)' }}>Nenhum.</p>
                               ) : adminHistory[u.id].files.map(f => (
@@ -4102,7 +4102,7 @@ export default function Home() {
                                     {f.filename} <span style={{ color: 'var(--muted)' }}>({formatFileSize(f.size)}){f.viewOnce ? ' [view-once]' : ''}</span>
                                   </span>
                                   <button onClick={() => handleAdminDeleteFile(f.id, u.id)} style={{ color: 'var(--red)', background: 'none', border: 'none', fontSize: '11px', padding: '2px' }}>
-                                    Apagar
+                                    Delete
                                   </button>
                                 </div>
                               ))}
@@ -4163,7 +4163,7 @@ export default function Home() {
 
             {adminTab === 'warnings' && (
               <div className="glass-card" style={{ border: '1px solid var(--line)' }}>
-                <h3 style={{ marginBottom: '12px', fontSize: '16px' }}>Advertências</h3>
+                <h3 style={{ marginBottom: '12px', fontSize: '16px' }}>Warnings</h3>
                 {adminWarnings === null || adminWarnings.length === 0 ? (
                   <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Nenhuma advertência registrada.</p>
                 ) : (
@@ -4218,7 +4218,7 @@ export default function Home() {
                     onClick={() => {
                       handleEndCallIfActive();
                       if (inRandomChat) {
-                        if (confirm('Deseja sair do chat aleatório?')) {
+                        if (confirm('Do you want to leave the random chat?')) {
                           skipRandomMatch();
                           setActiveView('sidebar');
                         }
@@ -4247,17 +4247,17 @@ export default function Home() {
                 <div style={{ minWidth: 0 }}>
                   <h4 style={{ fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {selectedGroup ? selectedGroup.name : inRandomChat ? `Parceiro (${getCountryName(randomPartner?.country)})` : selectedFriend.username}
+                      {selectedGroup ? selectedGroup.name : inRandomChat ? `Partner (${getCountryName(randomPartner?.country)})` : selectedFriend.username}
                     </span>
                     {!selectedGroup && <UserBadges user={inRandomChat ? randomPartner : selectedFriend} size={11} />}
                   </h4>
                   <span style={{ fontSize: '10px', color: 'var(--muted)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {selectedGroup
-                      ? `${selectedGroup.members?.length || 0} participantes`
+                      ? `${selectedGroup.members?.length || 0} members`
                       : inRandomChat
-                        ? `Filtro: ${randomPartner?.gender === 'male' ? 'Homem' : 'Mulher'}`
+                        ? `Filter: ${randomPartner?.gender === 'male' ? 'Male' : 'Female'}`
                         : typingStatus.isTyping && typingStatus.friendId === selectedFriend.friendId
-                          ? <span style={{ color: 'var(--gold)', display: 'inline-flex', alignItems: 'center', gap: '5px', fontWeight: '600' }}>digitando <span className="typing-dots"><span></span><span></span><span></span></span></span>
+                          ? <span style={{ color: 'var(--gold)', display: 'inline-flex', alignItems: 'center', gap: '5px', fontWeight: '600' }}>typing <span className="typing-dots"><span></span><span></span><span></span></span></span>
                           : selectedFriend.customId}
                   </span>
                 </div>
@@ -4266,10 +4266,10 @@ export default function Home() {
               <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '4px' : '6px' }}>
                 {selectedGroup ? (
                   <>
-                    <button className="btn-primary" onClick={() => setShowAddMemberModal(true)} title="Adicionar participante" style={{ padding: isMobile ? '6px 10px' : '8px 12px', minHeight: isMobile ? '32px' : '36px', fontSize: isMobile ? '11px' : '12px' }}>
-                      <UserPlus size={isMobile ? 13 : 15} /> {isMobile ? '' : 'Adicionar'}
+                    <button className="btn-primary" onClick={() => setShowAddMemberModal(true)} title="Add participante" style={{ padding: isMobile ? '6px 10px' : '8px 12px', minHeight: isMobile ? '32px' : '36px', fontSize: isMobile ? '11px' : '12px' }}>
+                      <UserPlus size={isMobile ? 13 : 15} /> {isMobile ? '' : 'Add'}
                     </button>
-                    <button onClick={() => setShowGroupManageModal(true)} title="Gerenciar grupo" style={{ color: 'var(--text)', background: 'var(--bg-3)', padding: isMobile ? '6px' : '8px', borderRadius: '6px', border: '1px solid var(--line)', minHeight: isMobile ? '32px' : '36px' }}>
+                    <button onClick={() => setShowGroupManageModal(true)} title="Manage group" style={{ color: 'var(--text)', background: 'var(--bg-3)', padding: isMobile ? '6px' : '8px', borderRadius: '6px', border: '1px solid var(--line)', minHeight: isMobile ? '32px' : '36px' }}>
                       <Settings size={14} />
                     </button>
                   </>
@@ -4278,7 +4278,7 @@ export default function Home() {
                     {/* Botão de Solicitação de Amizade */}
                     {randomFriendRequestStatus === 'none' && (
                       <button className="btn-primary" onClick={sendFriendRequestInRandom} style={{ padding: isMobile ? '4px 8px' : '6px 10px', fontSize: isMobile ? '10px' : '11px', minHeight: isMobile ? '32px' : '36px' }}>
-                        <UserPlus size={isMobile ? 12 : 13} /> Pedir
+                        <UserPlus size={isMobile ? 12 : 13} /> Request
                       </button>
                     )}
                     {randomFriendRequestStatus === 'sent' && (
@@ -4288,20 +4288,20 @@ export default function Home() {
                     )}
                     {randomFriendRequestStatus === 'received' && (
                       <button className="btn-primary animate-pulse-glow" onClick={sendFriendRequestInRandom} style={{ padding: isMobile ? '4px 8px' : '6px 10px', fontSize: isMobile ? '10px' : '11px', minHeight: isMobile ? '32px' : '36px' }}>
-                        Aceitar
+                        Accept
                       </button>
                     )}
                     {randomFriendRequestStatus === 'accepted' && (
                       <button className="btn-secondary" disabled style={{ padding: isMobile ? '4px 8px' : '6px 10px', fontSize: isMobile ? '10px' : '11px', minHeight: isMobile ? '32px' : '36px', color: 'var(--green)', borderColor: 'var(--green)' }}>
-                        Amigos
+                        Friends
                       </button>
                     )}
 
-                    <button onClick={() => setShowReportModal(true)} title="Denunciar" style={{ color: 'var(--red)', background: 'rgba(239, 68, 68, 0.1)', padding: isMobile ? '6px' : '8px', borderRadius: '6px', minHeight: isMobile ? '32px' : '36px' }}>
+                    <button onClick={() => setShowReportModal(true)} title="Report" style={{ color: 'var(--red)', background: 'rgba(239, 68, 68, 0.1)', padding: isMobile ? '6px' : '8px', borderRadius: '6px', minHeight: isMobile ? '32px' : '36px' }}>
                       <Flag size={14} />
                     </button>
                     <button className="btn-primary animate-pulse-glow" onClick={skipRandomMatch} style={{ padding: isMobile ? '6px 10px' : '8px 12px', minHeight: isMobile ? '32px' : '36px', fontSize: isMobile ? '11px' : '12px' }}>
-                      Pular
+                      Skip
                     </button>
                   </>
                 ) : (
@@ -4330,10 +4330,10 @@ export default function Home() {
                   />
                 ))}
                 <span style={{ fontSize: '13px', color: 'var(--gold)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Phone size={14} /> Em chamada de áudio... <span style={{ fontFamily: 'var(--font-mono)', color: '#fff' }}>{formatDuration(callElapsed)}</span>
+                  <Phone size={14} /> In audio call... <span style={{ fontFamily: 'var(--font-mono)', color: '#fff' }}>{formatDuration(callElapsed)}</span>
                 </span>
                 {selectedFriend && (
-                  <button onClick={() => setShowAddToCallModal(true)} title="Adicionar à chamada" style={{ padding: '8px', borderRadius: '50%', background: 'var(--gold-soft)', color: 'var(--gold)', border: '1px solid var(--gold)', minHeight: isMobile ? '32px' : '36px' }}>
+                  <button onClick={() => setShowAddToCallModal(true)} title="Add à chamada" style={{ padding: '8px', borderRadius: '50%', background: 'var(--gold-soft)', color: 'var(--gold)', border: '1px solid var(--gold)', minHeight: isMobile ? '32px' : '36px' }}>
                     <UserPlus size={13} />
                   </button>
                 )}
@@ -4341,7 +4341,7 @@ export default function Home() {
                   {audioEnabled ? <Mic size={12} /> : <MicOff size={12} />}
                 </button>
                 <button onClick={handleEndCall} style={{ padding: '6px 12px', borderRadius: '4px', background: 'var(--red)', color: '#fff', fontSize: '11px', border: 'none', minHeight: isMobile ? '32px' : '36px' }}>
-                  Encerrar
+                  End
                 </button>
               </div>
             )}
@@ -4392,21 +4392,21 @@ export default function Home() {
                   <button 
                     onClick={toggleAudio} 
                     className="video-ctrl-btn"
-                    title={audioEnabled ? "Desativar microfone" : "Ativar microfone"}
+                    title={audioEnabled ? "Mute mic" : "Unmute mic"}
                   >
                     {audioEnabled ? <Mic size={16} /> : <MicOff size={16} />}
                   </button>
                   <button 
                     onClick={toggleVideo} 
                     className="video-ctrl-btn"
-                    title={videoEnabled ? "Desativar câmera" : "Ativar câmera"}
+                    title={videoEnabled ? "Turn off camera" : "Turn on camera"}
                   >
                     {videoEnabled ? <Video size={16} /> : <VideoOff size={16} />}
                   </button>
                   {callState === 'connected' && selectedFriend && (
                     <button 
                       onClick={() => setShowAddToCallModal(true)} 
-                      title="Adicionar à chamada" 
+                      title="Add à chamada" 
                       className="video-ctrl-btn"
                       style={{ color: 'var(--gold)', borderColor: 'var(--gold)' }}
                     >
@@ -4417,7 +4417,7 @@ export default function Home() {
                     <button 
                       onClick={handleEndCall} 
                       className="video-ctrl-btn danger"
-                      title="Encerrar Chamada"
+                      title="End Chamada"
                     >
                       <Phone size={16} style={{ transform: 'rotate(135deg)' }} />
                     </button>
@@ -4434,11 +4434,11 @@ export default function Home() {
                   value={chatSearch}
                   onChange={e => setChatSearch(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') searchChat(); }}
-                  placeholder="Buscar no chat..."
+                  placeholder="Search in chat..."
                   style={{ flex: 1, fontSize: '12px', padding: '8px 10px', minHeight: '36px' }}
                 />
                 <button type="button" onClick={searchChat} className="btn-primary" style={{ padding: '8px 12px', minHeight: '36px', fontSize: '11px' }}>
-                  Buscar
+                  Search
                 </button>
                 {chatSearch && (
                   <button type="button" onClick={() => { setChatSearch(''); setSearchResults([]); }} style={{ color: 'var(--muted)', background: 'none', border: 'none', padding: '4px' }}>
@@ -4449,7 +4449,7 @@ export default function Home() {
             )}
             {searchResults.length > 0 && (
               <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--gold)', background: 'var(--bg-3)', flexShrink: 0 }}>
-                <span style={{ fontSize: '11px', color: 'var(--gold)' }}>{searchResults.length} resultado(s) para &ldquo;{chatSearch}&rdquo;</span>
+                <span style={{ fontSize: '11px', color: 'var(--gold)' }}>{searchResults.length} result(s) for &ldquo;{chatSearch}&rdquo;</span>
               </div>
             )}
             <div className="chat-ambient" style={{ flex: 1, overflowY: 'auto', padding: '16px 12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -4475,7 +4475,7 @@ export default function Home() {
                         {msg.partnerCountry && <span>({msg.partnerCountry})</span>}
                       </div>
                       <div style={{ background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: '10px', padding: '8px 14px', color: 'var(--muted)', fontSize: '12px', textAlign: 'center', lineHeight: '1.5' }}>
-                        {msg.content ? msg.content : 'Este parceiro ainda não definiu uma bio.'}
+                        {msg.content ? msg.content : 'This partner has not set a bio yet.'}
                       </div>
                       <span style={{ fontSize: '9px', color: 'var(--muted)' }}>
                         {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -4503,10 +4503,10 @@ export default function Home() {
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '9px', color: 'var(--muted)', padding: '0 4px' }}>
                         <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         {isMe && selectedFriend && !selectedGroup && (
-                          msg.readAt ? <CheckCheck size={11} style={{ color: 'var(--gold)' }} title="Visto" /> : <Check size={11} style={{ color: 'var(--muted)' }} title="Enviado" />
+                          msg.readAt ? <CheckCheck size={11} style={{ color: 'var(--gold)' }} title="Seen" /> : <Check size={11} style={{ color: 'var(--muted)' }} title="Sent" />
                         )}
                         {isMe && selectedFriend && !inRandomChat && (
-                          <button onClick={() => handleDeleteMessage(msg.id)} style={{ color: 'var(--red)', border: 'none', background: 'none' }}>Apagar</button>
+                          <button onClick={() => handleDeleteMessage(msg.id)} style={{ color: 'var(--red)', border: 'none', background: 'none' }}>Delete</button>
                         )}
                       </div>
                     </div>
@@ -4525,7 +4525,7 @@ export default function Home() {
                     )}
                     <div style={{ alignSelf: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }} className="animate-slide-in">
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: '10px', padding: '6px 12px', color: 'var(--muted)', fontSize: '11px' }}>
-                        {msg.content === 'Chamada de vídeo' ? (
+                        {msg.content === 'Video call' ? (
                           <Video size={12} style={{ color: 'var(--gold)' }} />
                         ) : (
                           <Phone size={12} style={{ color: 'var(--gold)' }} />
@@ -4538,10 +4538,10 @@ export default function Home() {
                       <span style={{ fontSize: '9px', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                         {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         {isMe && selectedFriend && (msg.readAt
-                          ? <CheckCheck size={11} style={{ color: 'var(--gold)' }} title="Visto" />
-                          : <Check size={11} style={{ color: 'var(--muted)' }} title="Enviado" />)}
+                          ? <CheckCheck size={11} style={{ color: 'var(--gold)' }} title="Seen" />
+                          : <Check size={11} style={{ color: 'var(--muted)' }} title="Sent" />)}
                         {isMe && selectedFriend && (
-                          <button onClick={() => handleDeleteMessage(msg.id)} style={{ color: 'var(--red)', border: 'none', background: 'none' }}>Apagar</button>
+                          <button onClick={() => handleDeleteMessage(msg.id)} style={{ color: 'var(--red)', border: 'none', background: 'none' }}>Delete</button>
                         )}
                       </span>
                     </div>
@@ -4568,7 +4568,7 @@ export default function Home() {
                     className="animate-slide-in"
                   >
                     {selectedGroup && !isMe && (
-                      <span style={{ fontSize: '10px', fontWeight: '600', color: 'var(--gold)', padding: '0 4px' }}>{msg.senderName || 'Membro'}</span>
+                      <span style={{ fontSize: '10px', fontWeight: '600', color: 'var(--gold)', padding: '0 4px' }}>{msg.senderName || 'Member'}</span>
                     )}
                     {msg.parentMessageId && (
                       <div style={{ 
@@ -4595,8 +4595,8 @@ export default function Home() {
                           autoFocus
                           style={{ flex: 1, background: 'transparent', border: 'none', color: '#fff', fontSize: '13px', outline: 'none' }}
                         />
-                        <button onClick={saveEditMessage} style={{ color: 'var(--gold)', border: 'none', background: 'none', fontSize: '11px' }}>Salvar</button>
-                        <button onClick={cancelEditMessage} style={{ color: 'var(--muted)', border: 'none', background: 'none', fontSize: '11px' }}>Cancelar</button>
+                        <button onClick={saveEditMessage} style={{ color: 'var(--gold)', border: 'none', background: 'none', fontSize: '11px' }}>Save</button>
+                        <button onClick={cancelEditMessage} style={{ color: 'var(--muted)', border: 'none', background: 'none', fontSize: '11px' }}>Cancel</button>
                       </div>
                     ) : (
                       <div style={{ 
@@ -4706,12 +4706,12 @@ export default function Home() {
                       <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                       {isMe && selectedFriend && !selectedGroup && (
                         msg.readAt
-                          ? <CheckCheck size={11} style={{ color: 'var(--gold)' }} title="Visto" />
-                          : <Check size={11} style={{ color: 'var(--muted)' }} title="Enviado" />
+                          ? <CheckCheck size={11} style={{ color: 'var(--gold)' }} title="Seen" />
+                          : <Check size={11} style={{ color: 'var(--muted)' }} title="Sent" />
                       )}
                       {isMe && selectedGroup && premiumStatus?.premium && (msg.readBy || []).length > 0 && (
                         <span title={(msg.readBy || []).map(r => r.username).join(', ')}>
-                          Visto por {(msg.readBy || []).slice(0, 3).map(r => r.username || r.userId.slice(0, 5)).join(', ')}{(msg.readBy || []).length > 3 ? ` +${(msg.readBy || []).length - 3}` : ''}
+                          Seen por {(msg.readBy || []).slice(0, 3).map(r => r.username || r.userId.slice(0, 5)).join(', ')}{(msg.readBy || []).length > 3 ? ` +${(msg.readBy || []).length - 3}` : ''}
                         </span>
                       )}
                       {premiumStatus?.premium && !isMe && msg.content && msg.type !== 'sticker' && (
@@ -4735,7 +4735,7 @@ export default function Home() {
                         <button onClick={() => startEditMessage(msg)} style={{ color: 'var(--gold)', border: 'none', background: 'none' }}>Editar</button>
                       )}
                       {isMe && selectedFriend && !inRandomChat && (
-                        <button onClick={() => handleDeleteMessage(msg.id)} style={{ color: 'var(--red)', border: 'none', background: 'none' }}>Apagar</button>
+                        <button onClick={() => handleDeleteMessage(msg.id)} style={{ color: 'var(--red)', border: 'none', background: 'none' }}>Delete</button>
                       )}
 
                       {reactionPicker?.messageId === msg.id && (
@@ -4811,11 +4811,11 @@ export default function Home() {
 
               <div style={{ display: 'flex', gap: '6px' }}>
                 <input type="file" ref={fileInputRef} accept="image/*,video/*,audio/*" style={{ display: 'none' }} onChange={handleAttachmentSelect} />
-                <button type="button" onClick={() => fileInputRef.current && fileInputRef.current.click()} title="Enviar foto/vídeo/áudio" style={{ color: attachment ? 'var(--gold)' : 'var(--muted)', padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px' }}>
+                <button type="button" onClick={() => fileInputRef.current && fileInputRef.current.click()} title="Send foto/vídeo/áudio" style={{ color: attachment ? 'var(--gold)' : 'var(--muted)', padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px' }}>
                   <Paperclip size={16} />
                 </button>
                 {isRecordingVoice ? (
-                  <button type="button" onClick={cancelVoiceRecording} title="Cancelar gravação" style={{ color: 'var(--red)', padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px', animation: 'pulse 1s infinite' }}>
+                  <button type="button" onClick={cancelVoiceRecording} title="Cancel gravação" style={{ color: 'var(--red)', padding: isMobile ? '8px 10px' : '10px 12px', minHeight: isMobile ? '36px' : '40px', animation: 'pulse 1s infinite' }}>
                     <MicOff size={16} />
                   </button>
                 ) : (
@@ -4907,7 +4907,7 @@ export default function Home() {
                   </button>
                 )}
                 {inRandomChat && matchMode === 'text' && (
-                  <button type="button" className="btn-primary animate-pulse-glow" onClick={skipRandomMatch} title="Pular pessoa" style={{ padding: isMobile ? '8px 12px' : '10px 14px', minHeight: isMobile ? '36px' : '40px' }}>
+                  <button type="button" className="btn-primary animate-pulse-glow" onClick={skipRandomMatch} title="Skip pessoa" style={{ padding: isMobile ? '8px 12px' : '10px 14px', minHeight: isMobile ? '36px' : '40px' }}>
                     <SkipForward size={14} />
                   </button>
                 )}
@@ -4946,7 +4946,7 @@ export default function Home() {
               {queueStatusText}
             </p>
             <button className="btn-secondary" onClick={cancelRandomMatch} style={{ minHeight: '40px' }}>
-              Cancelar
+              Cancel
             </button>
           </div>
         ) : (
@@ -4957,7 +4957,7 @@ export default function Home() {
                 className="btn-primary animate-pulse-glow" 
                 style={{ position: 'absolute', top: '16px', right: '16px', padding: '8px 16px', fontSize: '12px' }}
               >
-                Ver Amigos <Users size={14} style={{ marginLeft: '4px' }} />
+                Ver Friends <Users size={14} style={{ marginLeft: '4px' }} />
               </button>
             )}
 
@@ -4983,7 +4983,7 @@ export default function Home() {
                     <select value={matchGender} onChange={e => setMatchGender(e.target.value)} style={{ width: '100%', fontSize: '12px', minHeight: '40px', padding: '6px 10px' }}>
                       <option value="any">Qualquer</option>
                       <option value="male">Homens</option>
-                      <option value="female">Mulheres</option>
+                      <option value="female">Femalees</option>
                     </select>
                   </div>
                   
@@ -5033,7 +5033,7 @@ export default function Home() {
             <div>
               <h4 style={{ fontSize: '13px', color: '#fff' }}>{incomingCall.callerData.username}</h4>
               <span style={{ fontSize: '10px', color: 'var(--muted)' }}>
-                {incomingCall.isGroup ? 'Chamada em grupo' : `Chamando você`} ({incomingCall.type === 'video' ? 'Vídeo' : 'Áudio'})...
+                {incomingCall.isGroup ? 'Group call' : `Chamando você`} ({incomingCall.type === 'video' ? 'Vídeo' : 'Áudio'})...
               </span>
             </div>
           </div>
@@ -5080,7 +5080,7 @@ export default function Home() {
                       <p style={{ fontSize: '11px', color: 'var(--muted)' }}>Carregando...</p>
                     ) : !profileViews ? null : profileViews.premiumRequired ? (
                       <button onClick={() => setShowPremiumScreen(true)} className="btn-primary" style={{ width: '100%', justifyContent: 'center', minHeight: '36px', fontSize: '11px' }}>
-                        <Crown size={12} /> Desbloquear com Premium
+                        <Crown size={12} /> Unblock com Premium
                       </button>
                     ) : profileViews.viewers.length === 0 ? (
                       <p style={{ fontSize: '11px', color: 'var(--muted)', fontStyle: 'italic' }}>Ninguém visitou seu perfil ainda.</p>
@@ -5111,31 +5111,31 @@ export default function Home() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <Avatar url={user.avatarUrl} name={user.username} size={40} />
                         <label className="btn-secondary" style={{ fontSize: '11px', padding: '6px 10px', cursor: 'pointer' }}>
-                          Enviar foto
+                          Send foto
                           <input type="file" accept="image/*" style={{ display: 'none' }} onChange={uploadAvatar} />
                         </label>
                       </div>
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Status (ex: no trabalho)</label>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Status (ex: at work)</label>
                       <input type="text" maxLength="40" value={editStatus} onChange={e => setEditStatus(e.target.value)} style={{ width: '100%', fontSize: '13px', padding: '8px 10px' }} />
                     </div>
                     <div>
                       <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Bio</label>
-                      <textarea rows="3" maxLength="160" value={editBio} onChange={e => setEditBio(e.target.value)} placeholder="Conte algo sobre você..." style={{ width: '100%', resize: 'none', background: 'var(--bg-3)', border: '1px solid var(--line)', color: '#fff', padding: '8px', borderRadius: '6px', fontSize: '12px' }} />
+                      <textarea rows="3" maxLength="160" value={editBio} onChange={e => setEditBio(e.target.value)} placeholder="Tell us something about you..." style={{ width: '100%', resize: 'none', background: 'var(--bg-3)', border: '1px solid var(--line)', color: '#fff', padding: '8px', borderRadius: '6px', fontSize: '12px' }} />
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <button type="submit" className="btn-primary" style={{ flex: 1, justifyContent: 'center', minHeight: '38px', fontSize: '13px' }}>Salvar</button>
-                      <button type="button" onClick={() => setEditProfileMode(false)} className="btn-secondary" style={{ flex: 1, justifyContent: 'center', minHeight: '38px', fontSize: '13px' }}>Cancelar</button>
+                      <button type="submit" className="btn-primary" style={{ flex: 1, justifyContent: 'center', minHeight: '38px', fontSize: '13px' }}>Save</button>
+                      <button type="button" onClick={() => setEditProfileMode(false)} className="btn-secondary" style={{ flex: 1, justifyContent: 'center', minHeight: '38px', fontSize: '13px' }}>Cancel</button>
                     </div>
                   </form>
                 ) : (
                   <>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px', color: 'var(--muted)', marginBottom: '16px' }}>
-                      <span><MapPin size={12} style={{ verticalAlign: '-2px', marginRight: '4px' }} /> {profileUser.country || 'Desconhecido'}</span>
-                      <span>Gênero: {profileUser.gender === 'male' ? 'Masculino' : profileUser.gender === 'female' ? 'Feminino' : 'Outro'}</span>
+                      <span><MapPin size={12} style={{ verticalAlign: '-2px', marginRight: '4px' }} /> {profileUser.country || 'Unknown'}</span>
+                      <span>Gender: {profileUser.gender === 'male' ? 'Male' : profileUser.gender === 'female' ? 'Female' : 'Other'}</span>
                       <span style={{ color: onlineUsers[profileUser.id] ? 'var(--green)' : 'var(--muted)' }}>
-                        {onlineUsers[profileUser.id] ? 'Online' : profileUser.lastSeen ? `Visto por último às ${new Date(profileUser.lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Offline'}
+                        {onlineUsers[profileUser.id] ? 'Online' : profileUser.lastSeen ? `Seen por último às ${new Date(profileUser.lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Offline'}
                       </span>
                       {profileUser.bio && <span style={{ fontStyle: 'italic', color: 'var(--text)' }}>&ldquo;{profileUser.bio}&rdquo;</span>}
                     </div>
@@ -5149,13 +5149,13 @@ export default function Home() {
                               <span style={{ fontSize: '11px', color: 'var(--gold)', fontWeight: '600' }}>PREMIUM</span>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                              <span style={{ fontSize: '12px', color: 'var(--muted)' }}>Modo invisível</span>
+                              <span style={{ fontSize: '12px', color: 'var(--muted)' }}>Invisible mode</span>
                               <button onClick={() => { const next = !invisibleMode; setInvisibleMode(next); savePremiumSettings({ preventDefault: () => {} }, chatTheme, next); }} style={{ background: invisibleMode ? 'var(--gold)' : 'var(--line)', border: 'none', borderRadius: '20px', width: '44px', height: '24px', position: 'relative', cursor: 'pointer', padding: 0 }}>
                                 <div style={{ position: 'absolute', top: '2px', left: invisibleMode ? '22px' : '2px', width: '20px', height: '20px', borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
                               </button>
                             </div>
                             <div>
-                              <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Tema do chat</label>
+                              <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Chat theme</label>
                               <select value={chatTheme} onChange={e => { const val = e.target.value; setChatTheme(val); savePremiumSettings({ preventDefault: () => {} }, val, invisibleMode); applyTheme(val); }} style={{ width: '100%', fontSize: '12px', padding: '8px', background: 'var(--bg)', border: '1px solid var(--line)', color: '#fff', borderRadius: '6px' }}>
                                 {Object.entries(THEMES).map(([key, t]) => (
                                   <option key={key} value={key}>{t.name}</option>
@@ -5164,39 +5164,39 @@ export default function Home() {
                             </div>
                             <div>
                               <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>
-                                <Crown size={10} style={{ color: 'var(--gold)' }} /> Nome de usuário
+                                <Crown size={10} style={{ color: 'var(--gold)' }} /> Username
                               </label>
                               {editingUsername ? (
                                 <div style={{ display: 'flex', gap: '6px' }}>
                                   <input type="text" value={newUsername} onChange={e => setNewUsername(e.target.value)} maxLength={30} style={{ flex: 1, fontSize: '12px', padding: '8px' }} autoFocus />
-                                  <button onClick={changeUsername} className="btn-primary" style={{ padding: '6px 12px', fontSize: '11px', minHeight: '32px' }}>Salvar</button>
-                                  <button onClick={() => setEditingUsername(false)} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '11px', minHeight: '32px' }}>Cancelar</button>
+                                  <button onClick={changeUsername} className="btn-primary" style={{ padding: '6px 12px', fontSize: '11px', minHeight: '32px' }}>Save</button>
+                                  <button onClick={() => setEditingUsername(false)} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '11px', minHeight: '32px' }}>Cancel</button>
                                 </div>
                               ) : (
                                 <button onClick={() => { setNewUsername(user.username); setEditingUsername(true); }} style={{ width: '100%', fontSize: '12px', padding: '8px', background: 'var(--gold-soft)', border: '1px solid var(--gold)', color: 'var(--gold)', borderRadius: '6px', cursor: 'pointer' }}>
-                                  Alterar nome
+                                  Change name
                                 </button>
                               )}
                             </div>
                           </div>
                         )}
                         <button className="btn-secondary" onClick={openEditProfile} style={{ width: '100%', justifyContent: 'center', minHeight: '40px' }}>
-                          <Settings size={14} /> Editar perfil
+                          <Settings size={14} /> Edit profile
                         </button>
                         <button onClick={pushEnabled ? disablePush : requestPushPermission} disabled={pushLoading} className="btn-secondary" style={{ width: '100%', justifyContent: 'center', minHeight: '40px', marginTop: '8px', background: pushEnabled ? 'var(--green-soft, rgba(74,222,128,0.1))' : 'var(--bg-3)', border: pushEnabled ? '1px solid var(--green)' : '1px solid var(--line)', color: pushEnabled ? 'var(--green)' : 'var(--text)' }}>
-                          {pushLoading ? '...' : pushEnabled ? <><Bell size={14} /> Notificações ativadas</> : <><Bell size={14} /> Ativar notificações</>}
+                          {pushLoading ? '...' : pushEnabled ? <><Bell size={14} /> Notifications enabled</> : <><Bell size={14} /> Enable notifications</>}
                         </button>
                       </>
                     ) : (
                       <>
                         <button className="btn-primary" onClick={startChatFromProfile} style={{ width: '100%', justifyContent: 'center', minHeight: '40px', marginBottom: '8px' }}>
-                          <MessageSquare size={14} /> Conversar
+                          <MessageSquare size={14} /> Chat
                         </button>
                         <button
                           onClick={() => toggleBlock(profileUser)}
                           style={{ width: '100%', justifyContent: 'center', minHeight: '36px', fontSize: '12px', background: blockedIds[profileUser.id] ? 'var(--green-soft, rgba(34,197,94,0.1))' : 'var(--red)', color: blockedIds[profileUser.id] ? 'var(--green)' : '#fff', border: blockedIds[profileUser.id] ? '1px solid var(--green)' : 'none', borderRadius: '6px' }}
                         >
-                          {blockedIds[profileUser.id] ? 'Desbloquear' : 'Bloquear'}
+                          {blockedIds[profileUser.id] ? 'Unblock' : 'Block'}
                         </button>
                       </>
                     )}
@@ -5216,10 +5216,10 @@ export default function Home() {
               <h3 style={{ color: 'var(--gold)', fontSize: '16px' }}>Criar Grupo</h3>
               <button type="button" onClick={() => setShowCreateGroupModal(false)} style={{ color: 'var(--muted)', background: 'none', border: 'none', padding: '6px' }}><X /></button>
             </div>
-            <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Nome do grupo</label>
+            <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Group name</label>
             <input
               type="text"
-              placeholder="Ex: Amigos do Futebol"
+              placeholder="Ex: Friends do Futebol"
               value={groupName}
               onChange={e => setGroupName(e.target.value)}
               style={{ width: '100%', fontSize: '13px', padding: '8px 12px', minHeight: '38px', marginBottom: '12px' }}
@@ -5255,7 +5255,7 @@ export default function Home() {
         <div style={{ position: 'fixed', inset: 0, zIndex: 1300, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
           <div className="glass-card animate-slide-in" style={{ maxWidth: '380px', width: '100%', border: '1px solid var(--line)', padding: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <h3 style={{ color: 'var(--gold)', fontSize: '16px' }}>Adicionar ao Grupo</h3>
+              <h3 style={{ color: 'var(--gold)', fontSize: '16px' }}>Add ao Grupo</h3>
               <button onClick={() => setShowAddMemberModal(false)} style={{ color: 'var(--muted)', background: 'none', border: 'none', padding: '6px' }}><X /></button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '260px', overflowY: 'auto' }}>
@@ -5271,7 +5271,7 @@ export default function Home() {
                       <div style={{ fontSize: '10px', color: 'var(--muted)' }}>{f.customId}</div>
                     </div>
                     <button onClick={() => addMemberToGroup(f.friendId)} className="btn-primary" style={{ padding: '6px 10px', fontSize: '11px', minHeight: '32px' }}>
-                      <UserPlus size={12} /> Adicionar
+                      <UserPlus size={12} /> Add
                     </button>
                   </div>
                 ))}
@@ -5304,7 +5304,7 @@ export default function Home() {
                       <div style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.username}</span>
                         <UserBadges user={m} size={10} />
-                        {isOwner && <span style={{ fontSize: '10px', color: 'var(--gold)' }}>(Dono)</span>}
+                        {isOwner && <span style={{ fontSize: '10px', color: 'var(--gold)' }}>(Owner)</span>}
                       </div>
                       <div style={{ fontSize: '10px', color: 'var(--muted)' }}>{m.customId}</div>
                     </div>
@@ -5323,7 +5323,7 @@ export default function Home() {
               })}
             </div>
             <button onClick={leaveGroup} className="btn-secondary" style={{ width: '100%', justifyContent: 'center', minHeight: '40px', background: 'var(--red)', color: '#fff', border: 'none' }}>
-              <LogOut size={14} /> Sair do Grupo
+              <LogOut size={14} /> Logout do Grupo
             </button>
           </div>
         </div>
@@ -5334,7 +5334,7 @@ export default function Home() {
         <div style={{ position: 'fixed', inset: 0, zIndex: 1300, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
           <div className="glass-card animate-slide-in" style={{ maxWidth: '380px', width: '100%', border: '1px solid var(--line)', padding: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <h3 style={{ color: 'var(--gold)', fontSize: '16px' }}>Adicionar à Chamada</h3>
+              <h3 style={{ color: 'var(--gold)', fontSize: '16px' }}>Add à Chamada</h3>
               <button onClick={() => setShowAddToCallModal(false)} style={{ color: 'var(--muted)', background: 'none', border: 'none', padding: '6px' }}><X /></button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '260px', overflowY: 'auto' }}>
@@ -5368,7 +5368,7 @@ export default function Home() {
         <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
           <div className="glass-card animate-slide-in" style={{ maxWidth: '380px', width: '100%', border: '1px solid var(--line)', padding: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <h3 style={{ color: 'var(--red)', fontSize: '16px' }}>Denunciar</h3>
+              <h3 style={{ color: 'var(--red)', fontSize: '16px' }}>Report</h3>
               <button onClick={() => setShowReportModal(false)} style={{ color: 'var(--muted)', background: 'none', border: 'none', padding: '6px' }}><X /></button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -5392,7 +5392,7 @@ export default function Home() {
                 />
               </div>
               <button className="btn-primary" onClick={submitReport} style={{ background: 'var(--red)', color: '#fff', justifyContent: 'center', marginTop: '4px', minHeight: '40px' }}>
-                Enviar Denúncia
+                Send Denúncia
               </button>
             </div>
           </div>
@@ -5420,13 +5420,13 @@ export default function Home() {
                 <p style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '12px' }}>Expira em: {premiumStatus.premiumExpiresAt ? new Date(premiumStatus.premiumExpiresAt).toLocaleString('pt-BR') : '-'}</p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: '12px', color: 'var(--text)' }}>Modo invisível</span>
+                    <span style={{ fontSize: '12px', color: 'var(--text)' }}>Invisible mode</span>
                     <button onClick={() => { const next = !invisibleMode; setInvisibleMode(next); savePremiumSettings({ preventDefault: () => {} }, chatTheme, next); }} style={{ background: invisibleMode ? 'var(--gold)' : 'var(--line)', border: 'none', borderRadius: '20px', width: '44px', height: '24px', position: 'relative', cursor: 'pointer', padding: 0 }}>
                       <div style={{ position: 'absolute', top: '2px', left: invisibleMode ? '22px' : '2px', width: '20px', height: '20px', borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
                     </button>
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Tema do chat</label>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Chat theme</label>
                     <select value={chatTheme} onChange={e => { const val = e.target.value; setChatTheme(val); savePremiumSettings({ preventDefault: () => {} }, val, invisibleMode); applyTheme(val); }} style={{ width: '100%', fontSize: '12px', padding: '8px', background: 'var(--bg)', border: '1px solid var(--line)', color: '#fff', borderRadius: '6px' }}>
                       {Object.entries(THEMES).map(([key, t]) => (
                         <option key={key} value={key}>{t.name}</option>
@@ -5455,9 +5455,9 @@ export default function Home() {
                   <li>Mensagens de até 5000 caracteres</li>
                   <li>Até 50 mensagens fixadas</li>
                   <li>Prioridade no matchmaking</li>
-                  <li>Chamadas em grupo com até 8 pessoas</li>
+                  <li>Calls em grupo com até 8 pessoas</li>
                   <li>Mudar nome a qualquer momento</li>
-                  <li>Modo invisível + temas personalizados</li>
+                  <li>Invisible mode + temas personalizados</li>
                   <li>Exportar histórico do chat</li>
                 </ul>
 
@@ -5507,7 +5507,7 @@ export default function Home() {
             Utilizamos cookies para melhorar sua experiência. Ao continuar, você concorda com nossa política de privacidade.
           </span>
           <button onClick={acceptCookies} className="btn-primary" style={{ whiteSpace: 'nowrap', minHeight: '36px', fontSize: '12px', padding: '8px 16px' }}>
-            Aceitar
+            Accept
           </button>
         </div>
       )}
