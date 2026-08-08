@@ -19,10 +19,10 @@ export function LanguageProvider({ children }) {
     } catch (e) {}
   }, [lang]);
 
-  const setLanguageFromCountry = useCallback((country) => {
+  const setLanguageFromCountry = (country) => {
     const newLang = getLanguageFromCountry(country);
     setLang(newLang);
-  }, []);
+  };
 
   const value = { lang, setLang, setLanguageFromCountry };
   return (
@@ -30,6 +30,12 @@ export function LanguageProvider({ children }) {
       {children}
     </LanguageContext.Provider>
   );
+}
+
+export function useLanguage() {
+  const ctx = useContext(LanguageContext);
+  if (!ctx) throw new Error('useLanguage must be used within LanguageProvider');
+  return ctx;
 }
 
 export function useLanguage() {
