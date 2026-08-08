@@ -7,7 +7,7 @@ export async function GET(req) {
   try {
     const auth = getAuthUser(req);
     if (!auth) {
-      return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
     let user = null;
@@ -20,7 +20,7 @@ export async function GET(req) {
       user = rows[0] || null;
     } catch (e) {
       console.error('[Premium] status db error:', e);
-      return NextResponse.json({ error: 'Erro ao buscar usuário' }, { status: 500 });
+      return NextResponse.json({ error: 'Error fetching user' }, { status: 500 });
     }
 
     const premium = isPremium(user);
@@ -36,6 +36,6 @@ export async function GET(req) {
     });
   } catch (error) {
     console.error('[Premium] status error:', error);
-    return NextResponse.json({ error: process.env.NODE_ENV === 'production' ? 'Erro interno do servidor' : 'Erro interno do servidor: ' + error.message }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === 'production' ? 'Internal server error' : 'Internal server error: ' + error.message }, { status: 500 });
   }
 }

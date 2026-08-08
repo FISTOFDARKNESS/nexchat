@@ -38,7 +38,7 @@ async function generateUniqueCustomId(baseName) {
       return customId;
     }
   }
-  throw new Error('Não foi possível gerar um customId único');
+  throw new Error('Could not generate a unique customId');
 }
 
 export async function POST(req) {
@@ -50,10 +50,10 @@ export async function POST(req) {
     // 1. LOGIN DE VISITANTE (GUEST) COM SENHA
     if (action === 'guest') {
       if (!username) {
-        return NextResponse.json({ error: 'Username é obrigatório' }, { status: 400 });
+        return NextResponse.json({ error: 'Username is required' }, { status: 400 });
       }
       if (!password) {
-        return NextResponse.json({ error: 'Senha é obrigatória para contas de visitante' }, { status: 400 });
+        return NextResponse.json({ error: 'Password is required for guest accounts' }, { status: 400 });
       }
 
       const existing = await sql('SELECT * FROM "User" WHERE "username" = $1 AND "isGuest" = true LIMIT 1', [username]);
@@ -61,10 +61,10 @@ export async function POST(req) {
       if (existing.length > 0) {
         const user = existing[0];
         if (!user.passwordHash) {
-          return NextResponse.json({ error: 'Esta conta não possui senha. Escolha outro nome.' }, { status: 400 });
+          return NextResponse.json({ error: 'This account has no password. Choose another name.' }, { status: 400 });
         }
         if (!verifyPassword(password, user.passwordHash)) {
-          return NextResponse.json({ error: 'Senha incorreta' }, { status: 401 });
+          return NextResponse.json({ error: 'Incorrect password' }, { status: 401 });
         }
 
         const bans = await sql(
@@ -72,7 +72,7 @@ export async function POST(req) {
           [user.id]
         );
         if (bans.length > 0) {
-          return NextResponse.json({ error: `Usuário banido: ${bans[0].reason}` }, { status: 403 });
+          return NextResponse.json({ error: `User banned: ${bans[0].reason}` }, { status: 403 });
         }
 
         const updated = await sql(
@@ -100,7 +100,7 @@ export async function POST(req) {
     // 2. REGISTRO / LOGIN COM GOOGLE
     if (action === 'google') {
       if (!email || !username) {
-        return NextResponse.json({ error: 'E-mail e nome de usuário são obrigatórios' }, { status: 400 });
+        return NextResponse.json({ error: 'Email and username are required' }, { status: 400 });
       }
 
       // Verifica se o usuário já existe pelo e-mail
@@ -116,7 +116,7 @@ export async function POST(req) {
           [user.id]
         );
         if (bans.length > 0) {
-          return NextResponse.json({ error: `Usuário banido: ${bans[0].reason}` }, { status: 403 });
+          return NextResponse.json({ error: `User banned: ${bans[0].reason}` }, { status: 403 });
         }
 
         const updated = await sql(
@@ -133,7 +133,7 @@ export async function POST(req) {
       // Se não existir, verifica ban por e-mail antes de criar
       const bannedReason = await emailBanned(email);
       if (bannedReason) {
-        return NextResponse.json({ error: `Este e-mail está banido: ${bannedReason}` }, { status: 403 });
+        return NextResponse.json({ error: `This email is banned: ${bannedReason}` }, { status: 403 });
       }
 
       const customId = await generateUniqueCustomId(username);
@@ -153,6 +153,6 @@ export async function POST(req) {
 
   } catch (error) {
     console.error('Erro na API de Auth:', error);
-    return NextResponse.json({ error: process.env.NODE_ENV === 'production' ? 'Erro interno do servidor' : 'Erro interno do servidor: ' + error.message }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === 'production' ? 'Internal server error' : 'Internal server error: ' + error.message }, { status: 500 });
   }
 }

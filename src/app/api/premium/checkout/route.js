@@ -15,12 +15,12 @@ export async function POST(req) {
   try {
     const auth = getAuthUser(req);
     if (!auth) {
-      return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
     const userRow = await sql('SELECT email FROM "User" WHERE id = $1 LIMIT 1', [auth.id]);
     if (!userRow[0]?.email) {
-      return NextResponse.json({ error: 'Apenas usuários com login Google podem comprar Premium' }, { status: 403 });
+      return NextResponse.json({ error: 'Only users with Google login can purchase Premium' }, { status: 403 });
     }
 
     const origin = getHost(req);
@@ -43,6 +43,6 @@ export async function POST(req) {
     return NextResponse.json({ success: true, orderId: order.id, approveUrl: order.links?.find(l => l.rel === 'approve')?.href });
   } catch (error) {
     console.error('Erro na API de Premium checkout:', error);
-    return NextResponse.json({ error: process.env.NODE_ENV === 'production' ? 'Erro interno do servidor' : 'Erro interno do servidor: ' + error.message }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === 'production' ? 'Internal server error' : 'Internal server error: ' + error.message }, { status: 500 });
   }
 }
