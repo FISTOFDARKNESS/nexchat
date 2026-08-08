@@ -14,7 +14,8 @@ import {
 import { PREMIUM_PRICE, formatPremiumPrice, getPriceForCountry } from '@/lib/premium-config';
 import { STICKERS, getSticker } from '@/lib/stickers';
 import { COUNTRIES, getCountryName } from '@/lib/countries';
-import { useLanguage, t } from '@/lib/i18n';
+import { useLanguage } from '@/components/LanguageProvider';
+import { t } from '@/lib/i18n';
 
 let socket;
 
