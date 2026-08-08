@@ -374,6 +374,13 @@ export default function Home() {
   // --- Idioma ---
   const { lang, setLang, setLanguageFromCountry } = useLanguage();
 
+  useEffect(() => {
+    const saved = localStorage.getItem('nexchat_lang');
+    if (!saved) {
+      setLanguageFromCountry(loginCountry);
+    }
+  }, [loginCountry, setLanguageFromCountry]);
+
   // Inputs de Login
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -1856,6 +1863,9 @@ export default function Home() {
         localStorage.setItem('nexchat_user', JSON.stringify(data.user));
         if (data.token) {
           localStorage.setItem('nexchat_token', data.token);
+        }
+        if (data.user?.country) {
+          setLanguageFromCountry(data.user.country);
         }
         addToast(`${t('welcome')}, ${data.user.username}!`, 'success');
       } else {
@@ -3601,10 +3611,36 @@ export default function Home() {
              <button onClick={handleLogout} title={t('logout')} style={{ color: 'var(--muted)', padding: '8px' }}>
                <LogOut size={18} />
              </button>
-           </div>
-         </div>
+          </div>
+        </div>
 
-         {/* Lobby Omegle Button */}
+        {/* Language Selector */}
+        <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Languages size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+          <select 
+            value={lang} 
+            onChange={(e) => setLang(e.target.value)}
+            style={{ 
+              flex: 1, 
+              background: 'var(--bg)', 
+              color: 'var(--text)', 
+              border: '1px solid var(--line)', 
+              borderRadius: '6px', 
+              padding: '6px 8px', 
+              fontSize: '12px',
+              minHeight: '32px'
+            }}
+          >
+            <option value="en">🇺🇸 EN</option>
+            <option value="pt">🇧🇷 PT</option>
+            <option value="es">🇪🇸 ES</option>
+            <option value="fr">🇫🇷 FR</option>
+            <option value="de">🇩🇪 DE</option>
+            <option value="it">🇮🇹 IT</option>
+          </select>
+        </div>
+
+        {/* Lobby Omegle Button */}
          <div style={{ padding: '16px', borderBottom: '1px solid var(--line)' }}>
            <button 
              className="btn-primary" 
