@@ -373,18 +373,17 @@ export default function Home() {
 
   // --- Idioma ---
   const { lang, setLang } = useLanguage();
-  const langRef = useRef(lang);
-  langRef.current = lang;
 
-  useEffect(() => {
+  const handleCountryChange = (e) => {
+    const code = (e.target.value || '').toUpperCase();
+    setLoginCountry(code);
     const ptCountries = new Set(['BR','PT','AO','MZ','CV','GW','ST','TL','GQ']);
-    const code = (loginCountry || '').toUpperCase();
-    if (code && !ptCountries.has(code) && langRef.current === 'pt') {
+    if (code && !ptCountries.has(code) && lang === 'pt') {
       setLang('en');
-    } else if (ptCountries.has(code) && langRef.current === 'en') {
+    } else if (ptCountries.has(code) && lang === 'en') {
       setLang('pt');
     }
-  }, [loginCountry, setLang]);
+  };
 
   // Inputs de Login
   const [loginUsername, setLoginUsername] = useState('');
@@ -3491,7 +3490,7 @@ export default function Home() {
                    </div>
                    <div style={{ flex: 1 }}>
                      <label style={{ display: 'block', fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>{t('country')}</label>
-                     <select value={loginCountry} onChange={e => setLoginCountry(e.target.value)} style={{ width: '100%', minHeight: '44px' }}>
+                     <select value={loginCountry} onChange={handleCountryChange} style={{ width: '100%', minHeight: '44px' }}>
                        {COUNTRIES.map(c => (
                          <option key={c.code} value={c.code}>
                            {c.flag} {lang === 'en' ? c.nameEn : c.name}
