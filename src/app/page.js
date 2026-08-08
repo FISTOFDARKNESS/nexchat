@@ -374,13 +374,6 @@ export default function Home() {
   // --- Idioma ---
   const { lang, setLang, setLanguageFromCountry } = useLanguage();
 
-  useEffect(() => {
-    const saved = localStorage.getItem('nexchat_lang');
-    if (!saved) {
-      setLanguageFromCountry(loginCountry);
-    }
-  }, [loginCountry, setLanguageFromCountry]);
-
   // Inputs de Login
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
