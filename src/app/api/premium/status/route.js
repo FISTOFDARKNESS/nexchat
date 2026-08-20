@@ -1,0 +1,41 @@
+import { sql } from '@/lib/db';
+import { NextResponse } from 'next/server';
+import { getAuthUser } from '@/lib/session';
+import { PREMIUM_PRICE, PREMIUM_CURRENCY, PREMIUM_DAYS, isPremium } from '@/lib/premium';
+
+export async function GET(req) {
+  try {
+    const auth = getAuthUser(req);
+    if (!auth) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
+    let user = null;
+    try {
+      const rows = await sql(
+        `SELECT id, username, "customId", "avatarUrl", role, verified, "premiumTier", "premiumSince", "premiumExpiresAt", "invisibleMode", "chatTheme", "lastNameChangeAt", email
+         FROM "User" WHERE id = $1 LIMIT 1`,
+        [auth.id]
+      );
+      user = rows[0] || null;
+    } catch (e) {
+      console.error('[Premium] status db error:', e);
+      return NextResponse.json({ error: 'Error fetching user' }, { status: 500 });
+    }
+
+    const premium = isPremium(user);
+
+    return NextResponse.json({
+      success: true,
+      premium,
+      price: PREMIUM_PRICE,
+      currency: PREMIUM_CURRENCY,
+      days: PREMIUM_DAYS,
+      user,
+      isGoogleUser: !!user?.email
+    });
+  } catch (error) {
+    console.error('[Premium] status error:', error);
+    return NextResponse.json({ error: 'Internal server error: ' + error.message }, { status: 500 });
+  }
+}
